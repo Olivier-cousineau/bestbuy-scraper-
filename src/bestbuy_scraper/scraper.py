@@ -2,11 +2,24 @@ import argparse
 import json
 import pathlib
 import re
+import time
+import random
 from dataclasses import dataclass, asdict
 from typing import Any, Dict, Iterable, List, Optional
 
 import requests
 from bs4 import BeautifulSoup
+
+DEFAULT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8",
+    "Connection": "keep-alive",
+}
 
 BESTBUY_CLEARANCE_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
 
@@ -24,10 +37,36 @@ class ScrapingError(Exception):
     """Raised when scraping fails."""
 
 
-def fetch_page(url: str, *, timeout: int = 20) -> str:
-    response = requests.get(url, timeout=timeout)
-    response.raise_for_status()
-    return response.text
+def fetch_page(url: str, timeout: int = 40, max_retries: int = 3) -> str:
+    """
+    Fetch a BestBuy page with basic retry and backoff.
+
+    - Timeout augmenté (40s au lieu de 20s).
+    - max_retries tentatives en cas de ReadTimeout ou erreur réseau.
+    - Petits sleeps random entre les tentatives pour éviter de spammer.
+    """
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"[fetch_page] GET {url} (attempt {attempt}/{max_retries}, timeout={timeout}s)")
+            response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
+            response.raise_for_status()
+            return response.text
+        except requests.exceptions.ReadTimeout as e:
+            print(f"[fetch_page][WARN] ReadTimeout on {url} (attempt {attempt}/{max_retries}): {e}")
+            last_error = e
+        except requests.RequestException as e:
+            # inclut SSLError, ConnectionError, etc.
+            print(f"[fetch_page][WARN] RequestException on {url} (attempt {attempt}/{max_retries}): {e}")
+            last_error = e
+
+        # backoff entre les tentatives
+        sleep_s = random.uniform(3, 7)
+        print(f"[fetch_page] Sleeping {sleep_s:.1f}s before retry...")
+        time.sleep(sleep_s)
+
+    # Si on arrive ici, toutes les tentatives ont échoué
+    raise RuntimeError(f"Failed to fetch {url} after {max_retries} attempts") from last_error
 
 
 def _extract_json_payload(html: str) -> Any:
