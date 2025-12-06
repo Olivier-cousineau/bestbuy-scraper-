@@ -3,13 +3,15 @@ name: BestBuy - Scrap, Clean & Publish to EconoDeal
 on:
   schedule:
     - cron: "0 4 * * *"  # tous les jours à 04:00 UTC
-  workflow_dispatch:
+  workflow_dispatch:      # pour pouvoir le lancer manuellement
 
 jobs:
   scrape-clean-publish:
     runs-on: ubuntu-latest
 
     steps:
+      # 1) Checkout du repo ACTUEL (bestbuy-scraper-)
+      # ⚠️ Pas de token ici, on utilise GITHUB_TOKEN par défaut.
       - name: Checkout bestbuy-scraper repo
         uses: actions/checkout@v4
 
@@ -23,33 +25,31 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Install Playwright browsers
-        run: python -m playwright install chromium
-
+      # 2) Lancer le scroll scraper BestBuy
       - name: Run BestBuy scroll scraper
-        env:
-          PYTHONPATH: src
         run: |
           python -m bestbuy_scraper.scroll_scraper --output data/clearance_products_full.json
 
+      # 3) Nettoyer et générer outputs/bestbuy/clearance.json
       - name: Clean BestBuy clearance JSON
-        env:
-          PYTHONPATH: src
         run: |
           python -m bestbuy_scraper.clean_bestbuy_clearance
 
+      # 4) Checkout du repo Econo-econo111 avec le secret ACCES
       - name: Checkout Econo-econo111 repo
         uses: actions/checkout@v4
         with:
           repository: Olivier-cousineau/Econo-econo111
-          token: ${{ secrets.ECONODEAL_PAT }}
+          token: ${{ secrets.ACCES }}
           path: econodeal-repo
 
+      # 5) Copier le fichier nettoyé dans l'autre repo
       - name: Copier clearance.json vers EconoDeal
         run: |
           mkdir -p econodeal-repo/outputs/bestbuy
           cp outputs/bestbuy/clearance.json econodeal-repo/outputs/bestbuy/clearance.json
 
+      # 6) Commit & push vers Econo-econo111
       - name: Commit & push vers Econo-econo111
         working-directory: econodeal-repo
         run: |
