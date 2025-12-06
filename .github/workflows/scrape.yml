@@ -22,13 +22,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run scraper
+      - name: Install Playwright browsers
+        run: python -m playwright install chromium
+
+      - name: Run BestBuy clearance scroll scraper
         env:
           PYTHONPATH: src
-        run: python -m bestbuy_scraper.scraper --output data/clearance_products.json
+        run: python -m bestbuy_scraper.scroll_scraper --output data/clearance_products_full.json
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: bestbuy-clearance
-          path: data/clearance_products.json
+          path: data/clearance_products_full.json
