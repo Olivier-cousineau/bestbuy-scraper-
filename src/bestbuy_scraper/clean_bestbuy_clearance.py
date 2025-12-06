@@ -7,8 +7,11 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-INPUT = Path("data/clearance_products_full.json")
-OUTPUT = Path("outputs/bestbuy/clearance.json")
+ROOT = Path(__file__).resolve().parents[1]
+INPUT = ROOT / "data" / "clearance_products_full.json"
+OUTPUT_DIR = ROOT / "outputs" / "bestbuy"
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT = OUTPUT_DIR / "clearance.json"
 
 REVIEW_COUNTER_PATTERN = re.compile(r"^\(\d+\)$")
 NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
