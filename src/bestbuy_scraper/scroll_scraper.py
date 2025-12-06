@@ -12,6 +12,47 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 CLEARANCE_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
 
 
+def click_show_more(page, pause_sec: float = 1.5, max_clicks: int = 40):
+    """
+    Clique sur le bouton 'Show more' BestBuy autant de fois que possible.
+
+    - Le bouton est identifié par data-automation="load-more"
+    - On limite le nombre de clics à max_clicks par sécurité.
+    """
+    clicks = 0
+    while clicks < max_clicks:
+        locator = page.locator('button[data-automation="load-more"]')
+        try:
+            if not locator or locator.count() == 0:
+                print("[click_show_more] Aucun bouton 'Show more' trouvé, arrêt.")
+                break
+            if not locator.first.is_visible():
+                print("[click_show_more] Bouton 'Show more' non visible, arrêt.")
+                break
+
+            print(f"[click_show_more] Bouton détecté — clic {clicks+1}/{max_clicks}…")
+            try:
+                locator.first.click(timeout=8000)
+            except Exception as e:
+                print(f"[click_show_more] Échec du clic normal ({e}), tentative via JS…")
+                page.evaluate(
+                    """() => {
+                        const btn = document.querySelector('button[data-automation="load-more"]');
+                        if (btn) btn.click();
+                    }"""
+                )
+
+            clicks += 1
+            sleep_time = pause_sec + random.uniform(0.5, 1.5)
+            page.wait_for_timeout(int(sleep_time * 1000))
+
+        except Exception as e:
+            print(f"[click_show_more] Erreur lors de la gestion du bouton 'Show more': {e}")
+            break
+
+    print(f"[click_show_more] Terminé, total de clics: {clicks}")
+
+
 def extract_products_from_html(html: str) -> List[Dict]:
     """
     Parse tous les produits depuis le HTML final (après scroll).
@@ -85,11 +126,11 @@ def extract_products_from_html(html: str) -> List[Dict]:
     return products
 
 
-def scroll_clearance_page(max_scrolls: int = 60, pause_sec: float = 1.5, max_show_more_clicks: int = 30) -> str:
+def scroll_clearance_page(max_scrolls: int = 5, pause_sec: float = 1.5, max_show_more_clicks: int = 40) -> str:
     """
     Ouvre la page clearance BestBuy et :
-      1) scrolle un peu pour initialiser la page
-      2) clique sur le bouton "Show more" tant qu'il existe (et jusqu'à max_show_more_clicks)
+      1) fait quelques scrolls initiaux
+      2) clique plusieurs fois sur le bouton "Show more" (data-automation="load-more")
     Retourne le HTML complet de la page à la fin.
     """
     with sync_playwright() as p:
@@ -109,10 +150,10 @@ def scroll_clearance_page(max_scrolls: int = 60, pause_sec: float = 1.5, max_sho
         # Petit délai pour laisser la page initiale se charger
         page.wait_for_timeout(3000)
 
-        # 1) Scroll léger pour déclencher les premiers loads
+        # 1) Scroll léger pour initialiser la page et déclencher les premiers chargements
         last_height = page.evaluate("document.body.scrollHeight")
-        for i in range(5):
-            print(f"[scroll_clearance_page] Initial scroll {i+1}/5")
+        for i in range(max_scrolls):
+            print(f"[scroll_clearance_page] Initial scroll {i+1}/{max_scrolls}")
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             sleep_time = pause_sec + random.uniform(0.2, 0.8)
             page.wait_for_timeout(int(sleep_time * 1000))
@@ -121,42 +162,8 @@ def scroll_clearance_page(max_scrolls: int = 60, pause_sec: float = 1.5, max_sho
                 break
             last_height = new_height
 
-        # 2) Clique sur "Show more" jusqu'à ce qu'il n'y en ait plus
-        show_more_clicks = 0
-        while show_more_clicks < max_show_more_clicks:
-            try:
-                # On cherche un élément "Show more"
-                # Essai avec get_by_text (Playwright 1.28+) puis fallback locator
-                btn = page.get_by_text("Show more").first
-            except Exception:
-                btn = page.locator("text=Show more").first
-
-            try:
-                if not btn or btn.count() == 0:
-                    print("[scroll_clearance_page] No 'Show more' button found, stopping.")
-                    break
-
-                if not btn.is_visible():
-                    print("[scroll_clearance_page] 'Show more' button not visible, stopping.")
-                    break
-
-                show_more_clicks += 1
-                print(f"[scroll_clearance_page] Clicking 'Show more' ({show_more_clicks}/{max_show_more_clicks})")
-                btn.click()
-                # Laisser du temps pour charger les nouveaux produits
-                sleep_time = pause_sec + random.uniform(0.5, 1.5)
-                page.wait_for_timeout(int(sleep_time * 1000))
-
-                # Optionnel : un petit scroll pour bien déclencher les loads
-                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                page.wait_for_timeout(int(pause_sec * 1000))
-
-            except PlaywrightTimeoutError:
-                print("[scroll_clearance_page] Timeout while clicking 'Show more', stopping.")
-                break
-            except Exception as e:
-                print(f"[scroll_clearance_page] Error while clicking 'Show more': {e}")
-                break
+        # 2) Cliquer sur le bouton "Show more" autant que possible
+        click_show_more(page, pause_sec=pause_sec, max_clicks=max_show_more_clicks)
 
         # 3) HTML final après tous les clicks
         html = page.content()
