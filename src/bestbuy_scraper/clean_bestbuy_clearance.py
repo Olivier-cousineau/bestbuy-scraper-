@@ -7,8 +7,9 @@ import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
-ROOT = Path(__file__).resolve().parents[1]
-INPUT = ROOT / "data" / "clearance_products_full.json"
+# Repository root is two levels above this file (../..)
+ROOT = Path(__file__).resolve().parents[2]
+INPUT = ROOT / "src" / "data" / "clearance_products_full.json"
 OUTPUT_DIR = ROOT / "outputs" / "bestbuy"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT = OUTPUT_DIR / "clearance.json"
