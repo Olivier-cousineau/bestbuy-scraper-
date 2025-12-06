@@ -1,0 +1,59 @@
+name: Clean and Publish BestBuy Clearance
+
+on:
+  schedule:
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+
+jobs:
+  clean-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: python -m playwright install chromium
+
+      - name: Run BestBuy clearance scroll scraper
+        env:
+          PYTHONPATH: src
+        run: python -m bestbuy_scraper.scroll_scraper --output data/clearance_products_full.json
+
+      - name: Clean clearance data
+        env:
+          PYTHONPATH: src
+        run: python scripts/clean_bestbuy_clearance.py --output clearance_clean.json
+
+      - name: Checkout Econo-econo111 repository
+        uses: actions/checkout@v4
+        with:
+          repository: Econo-econo111/Econo-econo111
+          token: ${{ secrets.ECONODEAL_PAT }}
+          path: econodeal-repo
+          fetch-depth: 0
+
+      - name: Copy cleaned clearance file
+        run: |
+          mkdir -p econodeal-repo/outputs/bestbuy
+          cp clearance_clean.json econodeal-repo/outputs/bestbuy/clearance.json
+
+      - name: Commit and push updated clearance data
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          repository: econodeal-repo
+          file_pattern: outputs/bestbuy/clearance.json
+          commit_message: "chore: update Best Buy clearance data"
+          token: ${{ secrets.ECONODEAL_PAT }}
