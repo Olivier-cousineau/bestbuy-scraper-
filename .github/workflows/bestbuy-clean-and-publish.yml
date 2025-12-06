@@ -1,18 +1,17 @@
-name: Clean and Publish BestBuy Clearance
+name: BestBuy - Scrap, Clean & Publish to EconoDeal
 
 on:
   schedule:
-    - cron: "0 4 * * *"
+    - cron: "0 4 * * *"  # tous les jours à 04:00 UTC
   workflow_dispatch:
 
 jobs:
-  clean-and-publish:
+  scrape-clean-publish:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repository
+      - name: Checkout bestbuy-scraper repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -27,33 +26,39 @@ jobs:
       - name: Install Playwright browsers
         run: python -m playwright install chromium
 
-      - name: Run BestBuy clearance scroll scraper
+      - name: Run BestBuy scroll scraper
         env:
           PYTHONPATH: src
-        run: python -m bestbuy_scraper.scroll_scraper --output data/clearance_products_full.json
+        run: |
+          python -m bestbuy_scraper.scroll_scraper --output data/clearance_products_full.json
 
-      - name: Clean clearance data
+      - name: Clean BestBuy clearance JSON
         env:
           PYTHONPATH: src
-        run: python scripts/clean_bestbuy_clearance.py --output clearance_clean.json
+        run: |
+          python -m bestbuy_scraper.clean_bestbuy_clearance
 
-      - name: Checkout Econo-econo111 repository
+      - name: Checkout Econo-econo111 repo
         uses: actions/checkout@v4
         with:
-          repository: Econo-econo111/Econo-econo111
+          repository: Olivier-cousineau/Econo-econo111
           token: ${{ secrets.ECONODEAL_PAT }}
           path: econodeal-repo
-          fetch-depth: 0
 
-      - name: Copy cleaned clearance file
+      - name: Copier clearance.json vers EconoDeal
         run: |
           mkdir -p econodeal-repo/outputs/bestbuy
-          cp clearance_clean.json econodeal-repo/outputs/bestbuy/clearance.json
+          cp outputs/bestbuy/clearance.json econodeal-repo/outputs/bestbuy/clearance.json
 
-      - name: Commit and push updated clearance data
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          repository: econodeal-repo
-          file_pattern: outputs/bestbuy/clearance.json
-          commit_message: "chore: update Best Buy clearance data"
-          token: ${{ secrets.ECONODEAL_PAT }}
+      - name: Commit & push vers Econo-econo111
+        working-directory: econodeal-repo
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add outputs/bestbuy/clearance.json
+          if git diff --cached --quiet; then
+            echo "Aucun changement à committer."
+          else
+            git commit -m "Update BestBuy clearance.json (auto)"
+            git push
+          fi
