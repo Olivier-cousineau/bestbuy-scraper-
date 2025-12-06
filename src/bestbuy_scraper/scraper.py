@@ -34,7 +34,7 @@ class Product:
 
 
 class ScrapingError(Exception):
-    """Raised when scraping fails."""
+    pass
 
 
 def fetch_page(url: str, timeout: int = 40, max_retries: int = 3) -> str:
@@ -69,20 +69,66 @@ def fetch_page(url: str, timeout: int = 40, max_retries: int = 3) -> str:
     raise RuntimeError(f"Failed to fetch {url} after {max_retries} attempts") from last_error
 
 
-def _extract_json_payload(html: str) -> Any:
-    soup = BeautifulSoup(html, "html.parser")
-    data_script = soup.find("script", id="__NEXT_DATA__")
-    if data_script and data_script.string:
-        return json.loads(data_script.string)
+def _extract_json_payload(html: str):
+    """
+    Essaie d'extraire le payload JSON BestBuy depuis la page.
+    1. Tente d'abord de trouver un <script> contenant un JSON d'état.
+    2. Si rien n'est trouvé, loggue un extrait du HTML et lève ScrapingError.
 
-    for script in soup.find_all("script"):
+    NOTE : on ajoute ensuite un fallback pour parser directement les produits HTML
+    dans scrape_products(), cette fonction reste focalisée sur l'extraction JSON.
+    """
+    # Exemple de patterns possibles (à adapter selon la structure actuelle)
+    # On scanne tous les <script> et on cherche un JSON qui ressemble à un state.
+    soup = BeautifulSoup(html, "html.parser")
+
+    # Heuristique pour détecter une éventuelle page de blocage
+    block_indicators = [
+        "are you a robot",
+        "unusual traffic",
+        "access denied",
+        "captcha",
+        "bot detection",
+    ]
+    page_text_lower = soup.get_text(" ", strip=True).lower()
+    if any(indicator in page_text_lower for indicator in block_indicators):
+        snippet = html[:500].replace("\n", " ")
+        print("[_extract_json_payload][WARN] Potential anti-bot page detected. HTML snippet:")
+        print(snippet)
+        raise ScrapingError("Potential anti-bot or access denied page detected.")
+
+    scripts = soup.find_all("script")
+
+    for script in scripts:
         if not script.string:
             continue
-        if "__NEXT_DATA__" in script.string:
-            match = re.search(r"__NEXT_DATA__\s*=\s*(\{.*?\})\s*;", script.string, re.DOTALL)
-            if match:
-                return json.loads(match.group(1))
+        text = script.string.strip()
 
+        # Heuristique : éviter les scripts trop petits ou qui ne semblent pas être du JSON
+        if len(text) < 50:
+            continue
+
+        # On ignore clairement les scripts qui commencent par "window.dataLayer", etc.
+        if text.startswith("window") or text.startswith("!function"):
+            continue
+
+        # Essayer un parse JSON direct
+        try:
+            data = json.loads(text)
+        except Exception:
+            continue
+
+        # Si on arrive ici, on a un JSON; on vérifie qu'il a l'air d'un payload de collection BestBuy
+        # On ne connaît pas forcément la structure exacte, donc on reste générique.
+        if isinstance(data, dict):
+            # tu peux ajuster cette condition selon la structure actuelle de ton payload
+            if "products" in data or "items" in data or "results" in data:
+                return data
+
+    # Si on n'a rien trouvé, on log un extrait du HTML pour debug
+    snippet = html[:500].replace("\n", " ")
+    print("[_extract_json_payload] Unable to locate JSON payload. HTML snippet:")
+    print(snippet)
     raise ScrapingError("Unable to locate BestBuy page data payload.")
 
 
@@ -141,14 +187,104 @@ def _build_product(entry: Dict[str, Any]) -> Product:
     )
 
 
-def scrape_products(url: str = BESTBUY_CLEARANCE_URL) -> List[Product]:
-    html = fetch_page(url)
-    payload = _extract_json_payload(html)
+def _parse_products_from_payload(payload: Any) -> List[Product]:
     product_entries = _search_for_products(payload)
     if not product_entries:
         raise ScrapingError("Could not find any products in the page payload.")
-
     return [_build_product(entry) for entry in product_entries]
+
+
+def _fallback_parse_products_from_html(html: str):
+    """
+    Fallback très simple si le JSON de BestBuy n'est pas trouvable.
+    On parse directement les cartes produits dans le HTML.
+
+    Stratégie:
+    - Chercher tous les liens <a> dont le href contient '/en-ca/product/'.
+    - Pour chaque lien, prendre le texte comme titre.
+    - Récupérer un prix proche (élément suivant contenant un '$').
+
+    NOTE: c'est volontairement générique, on n'essaie pas de recréer TOUT le JSON,
+    juste de sortir une liste de produits utilisable pour un CSV.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    products: List[Product] = []
+    seen_urls = set()
+
+    for a in soup.find_all("a", href=True):
+        href = a["href"]
+        if "/en-ca/product/" not in href:
+            continue
+
+        full_url = href
+        if full_url.startswith("/"):
+            full_url = "https://www.bestbuy.ca" + full_url
+
+        if full_url in seen_urls:
+            continue
+
+        title = a.get_text(strip=True)
+        if not title:
+            continue
+
+        # Chercher un prix proche
+        price_text = None
+        # Regarder les noeuds après le lien
+        for sibling in a.next_siblings:
+            if getattr(sibling, "get_text", None):
+                txt = sibling.get_text(strip=True)
+            else:
+                txt = str(sibling).strip()
+            if "$" in txt:
+                price_text = txt
+                break
+
+        price_value = None
+        if price_text:
+            match = re.search(r"\$\s*([0-9]+(?:\.[0-9]{2})?)", price_text)
+            if match:
+                try:
+                    price_value = float(match.group(1))
+                except ValueError:
+                    price_value = None
+
+        products.append(
+            Product(
+                sku="",
+                name=title,
+                price=price_value,
+                regular_price=None,
+                url=full_url,
+            )
+        )
+        seen_urls.add(full_url)
+
+    print(f"[_fallback_parse_products_from_html] Found {len(products)} products via HTML fallback.")
+    return products
+
+
+def scrape_products(url: str = BESTBUY_CLEARANCE_URL) -> List[Product]:
+    """
+    Scrape BestBuy clearance products depuis une URL de collection.
+
+    1. Télécharge la page via fetch_page()
+    2. Tente d'extraire le payload JSON via _extract_json_payload()
+    3. Si ça échoue, utilise un fallback HTML simple pour extraire les produits.
+    """
+    html = fetch_page(url)
+
+    # 1) Essayer le chemin "officiel" JSON
+    try:
+        payload = _extract_json_payload(html)
+        # Ici, garde ton parsing existant basé sur ce payload
+        # (liste de produits, champs, etc.)
+        products = _parse_products_from_payload(payload)
+        return products
+
+    except ScrapingError as e:
+        print(f"[scrape_products] JSON payload not found, falling back to HTML parsing: {e}")
+        # 2) Fallback HTML
+        return _fallback_parse_products_from_html(html)
 
 
 def save_products(products: Iterable[Product], output_path: pathlib.Path) -> None:
