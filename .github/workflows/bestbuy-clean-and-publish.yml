@@ -33,7 +33,8 @@ jobs:
       - name: Run BestBuy scroll scraper
         working-directory: src
         run: |
-          python -m bestbuy_scraper.scroll_scraper --output ../data/clearance_products_full.json
+          mkdir -p data
+          python -m bestbuy_scraper.scroll_scraper --output data/clearance_products_full.json
 
       # 3) Nettoyer et générer outputs/bestbuy/clearance.json
       - name: Clean BestBuy clearance JSON
