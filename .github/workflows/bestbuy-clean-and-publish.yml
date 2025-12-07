@@ -54,7 +54,9 @@ jobs:
       - name: Copier clearance.json vers EconoDeal
         run: |
           mkdir -p econodeal-repo/outputs/bestbuy
+          mkdir -p econodeal-repo/public/bestbuy
           cp outputs/bestbuy/clearance.json econodeal-repo/outputs/bestbuy/clearance.json
+          cp outputs/bestbuy/clearance.json econodeal-repo/public/bestbuy/clearance.json
 
       # 6) Commit & push vers Econo-econo111
       - name: Commit & push vers Econo-econo111
@@ -62,7 +64,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add outputs/bestbuy/clearance.json
+          git add outputs/bestbuy/clearance.json public/bestbuy/clearance.json
           if git diff --cached --quiet; then
             echo "Aucun changement à committer."
           else
