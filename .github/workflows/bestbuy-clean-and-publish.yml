@@ -29,34 +29,37 @@ jobs:
         run: |
           python -m playwright install --with-deps chromium
 
-      # 2) Lancer le scroll scraper BestBuy
+      # 2) Lancer le scroll scraper BestBuy (génère HTML brut + JSON brut)
       - name: Run BestBuy scroll scraper
-        working-directory: src
+        env:
+          PYTHONPATH: src
         run: |
-          mkdir -p data
-          python -m bestbuy_scraper.scroll_scraper --output data/clearance_products_full.json
+          python -m bestbuy_scraper.scroll_scraper \
+            --output data/clearance_products_full.json \
+            --html data/clearance_page.html
 
       # 3) Nettoyer et générer outputs/bestbuy/clearance.json
       - name: Clean BestBuy clearance JSON
-        working-directory: src
+        env:
+          PYTHONPATH: src
         run: |
-          python -m bestbuy_scraper.clean_bestbuy_clearance
+          python -m bestbuy_scraper.clean_bestbuy_clearance \
+            --input data/clearance_products_full.json \
+            --output outputs/bestbuy/clearance.json
 
       # 4) Checkout du repo Econo-econo111 avec le secret ACCES
       - name: Checkout Econo-econo111 repo
         uses: actions/checkout@v4
         with:
           repository: Olivier-cousineau/Econo-econo111
-          token: ${{ secrets.ACCES }}
+          token: ${{ secrets.ECONODEAL_PAT }}
           path: econodeal-repo
 
       # 5) Copier le fichier nettoyé dans l'autre repo
       - name: Copier clearance.json vers EconoDeal
         run: |
           mkdir -p econodeal-repo/outputs/bestbuy
-          mkdir -p econodeal-repo/public/bestbuy
           cp outputs/bestbuy/clearance.json econodeal-repo/outputs/bestbuy/clearance.json
-          cp outputs/bestbuy/clearance.json econodeal-repo/public/bestbuy/clearance.json
 
       # 6) Commit & push vers Econo-econo111
       - name: Commit & push vers Econo-econo111
@@ -64,10 +67,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add outputs/bestbuy/clearance.json public/bestbuy/clearance.json
+          git add outputs/bestbuy/clearance.json
           if git diff --cached --quiet; then
             echo "Aucun changement à committer."
           else
             git commit -m "Update BestBuy clearance.json (auto)"
-            git push
+            git push origin HEAD:main
           fi
