@@ -1,9 +1,10 @@
 # src/bestbuy_scraper/scroll_scraper.py
 
 import json
-import time
 import random
-from typing import List, Dict
+import time
+from pathlib import Path
+from typing import Dict, List, Tuple
 
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
@@ -171,15 +172,18 @@ def scroll_clearance_page(max_scrolls: int = 5, pause_sec: float = 1.5, max_show
         return html
 
 
-def scrape_bestbuy_clearance() -> List[Dict]:
+def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
     """
     Pipeline complet :
       1) Scroll la page BestBuy clearance
       2) Extract tous les produits du HTML complet
+
+    Retourne un tuple ``(html, products)`` pour pouvoir persister le HTML brut
+    ainsi que la liste d'objets JSON.
     """
     html = scroll_clearance_page()
     products = extract_products_from_html(html)
-    return products
+    return html, products
 
 
 def main():
@@ -189,22 +193,34 @@ def main():
     parser = argparse.ArgumentParser(
         description="Scrape BestBuy.ca clearance products via Playwright scroll."
     )
+    root = Path(__file__).resolve().parents[2]
     parser.add_argument(
         "--output",
         "-o",
-        default="data/clearance_products_full.json",
-        help="Output JSON file path.",
+        default=root / "data" / "clearance_products_full.json",
+        help="Output JSON file path for the raw products list.",
+    )
+    parser.add_argument(
+        "--html",
+        default=root / "data" / "clearance_page.html",
+        help="Output path for the raw HTML captured after scrolling.",
     )
     args = parser.parse_args()
 
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    output_path = Path(args.output)
+    html_path = Path(args.html)
 
-    products = scrape_bestbuy_clearance()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    html_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(args.output, "w", encoding="utf-8") as f:
+    html, products = scrape_bestbuy_clearance()
+
+    html_path.write_text(html, encoding="utf-8")
+    with output_path.open("w", encoding="utf-8") as f:
         json.dump(products, f, ensure_ascii=False, indent=2)
 
-    print(f"Saved {len(products)} clearance products to {args.output}")
+    print(f"Saved HTML snapshot to {html_path}")
+    print(f"Saved {len(products)} clearance products to {output_path}")
 
 
 if __name__ == "__main__":

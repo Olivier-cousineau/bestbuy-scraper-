@@ -2,17 +2,11 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-
-# Repository root is two levels above this file (../..)
-ROOT = Path(__file__).resolve().parents[2]
-INPUT = ROOT / "src" / "data" / "clearance_products_full.json"
-OUTPUT_DIR = ROOT / "outputs" / "bestbuy"
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT = OUTPUT_DIR / "clearance.json"
 
 REVIEW_COUNTER_PATTERN = re.compile(r"^\(\d+\)$")
 NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
@@ -77,15 +71,37 @@ def clean_products(products: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return cleaned
 
 
-def main() -> None:
-    if not INPUT.exists():
-        raise FileNotFoundError(f"{INPUT} not found")
+def parse_args() -> argparse.Namespace:
+    root = Path(__file__).resolve().parents[2]
+    parser = argparse.ArgumentParser(
+        description="Clean BestBuy clearance data into a normalized JSON file."
+    )
+    parser.add_argument(
+        "--input",
+        type=Path,
+        default=root / "data" / "clearance_products_full.json",
+        help="Path to the raw clearance JSON file produced by the scraper.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=root / "outputs" / "bestbuy" / "clearance.json",
+        help="Destination path for the cleaned clearance JSON file.",
+    )
+    return parser.parse_args()
 
-    raw_products = json.loads(INPUT.read_text(encoding="utf-8"))
+
+def main() -> None:
+    args = parse_args()
+
+    if not args.input.exists():
+        raise FileNotFoundError(f"{args.input} not found")
+
+    raw_products = json.loads(args.input.read_text(encoding="utf-8"))
     cleaned_products = clean_products(raw_products)
 
-    OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT.write_text(json.dumps(cleaned_products, indent=2), encoding="utf-8")
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(json.dumps(cleaned_products, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
