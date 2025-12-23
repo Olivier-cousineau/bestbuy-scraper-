@@ -1,4 +1,4 @@
-name: BestBuy - Scrap, Clean & Publish to EconoDeal
+name: BestBuy - Scrap, Clean & Publish to econoplus
 
 on:
   schedule:
@@ -47,23 +47,23 @@ jobs:
             --input data/clearance_products_full.json \
             --output outputs/bestbuy/clearance.json
 
-      # 4) Checkout du repo Econo-econo111 avec le secret ACCES
-      - name: Checkout Econo-econo111 repo
+      # 4) Checkout du repo econoplus avec le secret ACCES
+      - name: Checkout econoplus repo
         uses: actions/checkout@v4
         with:
-          repository: Olivier-cousineau/Econo-econo111
+          repository: Olivier-cousineau/econoplus
           token: ${{ secrets.ECONODEAL_PAT }}
-          path: econodeal-repo
+          path: econoplus-repo
 
       # 5) Copier le fichier nettoyé dans l'autre repo
-      - name: Copier clearance.json vers EconoDeal
+      - name: Copier clearance.json vers econoplus
         run: |
-          mkdir -p econodeal-repo/outputs/bestbuy
-          cp outputs/bestbuy/clearance.json econodeal-repo/outputs/bestbuy/clearance.json
+          mkdir -p econoplus-repo/outputs/bestbuy
+          cp outputs/bestbuy/clearance.json econoplus-repo/outputs/bestbuy/clearance.json
 
-      # 6) Commit & push vers Econo-econo111
-      - name: Commit & push vers Econo-econo111
-        working-directory: econodeal-repo
+      # 6) Commit & push vers econoplus
+      - name: Commit & push vers econoplus
+        working-directory: econoplus-repo
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
