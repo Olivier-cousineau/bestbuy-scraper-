@@ -51,8 +51,9 @@ jobs:
       - name: Checkout econoplus repo
         uses: actions/checkout@v4
         with:
-          repository: Olivier-cousineau/econoplus
-          token: ${{ secrets.ECONOPLUS_PUSH_TOKEN }}
+          repository: oliviercousineau/econoplus
+          ref: main
+          token: ${{ secrets.ECONOPLUS_PAT }}
           path: _econoplus
 
       # 5) Copier le fichier nettoyé dans l'autre repo
