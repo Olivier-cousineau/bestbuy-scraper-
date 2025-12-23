@@ -53,8 +53,8 @@ jobs:
         with:
           repository: oliviercousineau/econoplus
           ref: main
-          token: ${{ secrets.ECONOPLUS_PAT }}
           path: _econoplus
+          token: ${{ secrets.ECONOPLUS_PAT }}
 
       # 5) Copier le fichier nettoyé dans l'autre repo
       - name: Copier clearance.json vers econoplus
@@ -65,31 +65,19 @@ jobs:
       - name: Copy BestBuy online.json to econoplus
         run: |
           set -e
-
-          # Source: adapte à ton fichier réel généré par le scraper
-          SRC="data/clearance_products_full.json"
-
-          # Destination dans econoplus
-          DEST_DIR="_econoplus/public/bestbuy"
-          DEST_FILE="${DEST_DIR}/online.json"
-
-          mkdir -p "${DEST_DIR}"
-
-          # Copie (et renomme en online.json)
-          cp "${SRC}" "${DEST_FILE}"
-
-          echo "✅ Copied ${SRC} -> ${DEST_FILE}"
+          mkdir -p _econoplus/public/bestbuy
+          cp data/clearance_products_full.json _econoplus/public/bestbuy/online.json
 
       # 6) Commit & push vers econoplus
-      - name: Commit & push vers econoplus
+      - name: Commit & push to econoplus
         working-directory: _econoplus
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add outputs/bestbuy/clearance.json public/bestbuy/online.json
           if git status --porcelain | grep -q .; then
-            git commit -m "Update BestBuy clearance.json (auto)"
+            git add -A
+            git commit -m "BestBuy: update online.json"
             git push origin main
           else
-            echo "Aucun changement à committer."
+            echo "No changes to commit"
           fi
