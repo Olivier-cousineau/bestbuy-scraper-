@@ -19,7 +19,7 @@ def click_show_more(
     pause_sec: float = 1.5,
     max_clicks: int = 200,
     stable_iterations: int = 3,
-    wait_timeout_sec: float = 12.0,
+    wait_timeout_sec: float = 15.0,
     poll_interval_sec: float = 0.5,
 ):
     """
@@ -30,29 +30,72 @@ def click_show_more(
     """
     clicks = 0
     stable_count = 0
+    selectors = [
+        'button:has-text("Show more")',
+        'button:has-text("Voir plus")',
+        'button:has-text("Load more")',
+        'button:has-text("Charger plus")',
+        '[aria-label*="Show more"]',
+        '[aria-label*="Voir plus"]',
+        '[data-automation*="showMore"]',
+        '[data-automation*="loadMore"]',
+    ]
+    button_selector = ", ".join(selectors)
     while clicks < max_clicks:
         anchors_before = page.evaluate(
             """() => document.querySelectorAll('a[href^="/en-ca/product/"]').length"""
         )
-        locator = page.locator('button[data-automation="load-more"]')
+        locator = page.locator(button_selector)
         try:
             if not locator or locator.count() == 0:
                 print("[click_show_more] Aucun bouton 'Show more' trouvé, arrêt.")
                 break
-            if not locator.first.is_visible():
-                print("[click_show_more] Bouton 'Show more' non visible, arrêt.")
+            button_handle = None
+            for idx in range(locator.count()):
+                candidate = locator.nth(idx)
+                if not candidate.is_visible():
+                    continue
+                is_disabled = candidate.evaluate(
+                    "el => el.disabled || el.getAttribute('aria-disabled') === 'true'"
+                )
+                if is_disabled:
+                    continue
+                button_handle = candidate
+                break
+
+            if not button_handle:
+                print("[click_show_more] Bouton 'Show more' absent ou désactivé, arrêt.")
                 break
 
             print(f"[click_show_more] Bouton détecté — clic {clicks+1}/{max_clicks}…")
             try:
-                locator.first.click(timeout=8000)
+                button_handle.scroll_into_view_if_needed(timeout=8000)
+                button_handle.click(timeout=8000)
             except Exception as e:
                 print(f"[click_show_more] Échec du clic normal ({e}), tentative via JS…")
                 page.evaluate(
-                    """() => {
-                        const btn = document.querySelector('button[data-automation="load-more"]');
+                    """(labels, dataKeys) => {
+                        const matchesLabel = (value) =>
+                            labels.some((label) => value.includes(label));
+                        const matchesData = (value) =>
+                            dataKeys.some((key) => value.includes(key));
+                        const candidates = Array.from(
+                            document.querySelectorAll("button, [aria-label], [data-automation]")
+                        );
+                        const btn = candidates.find((el) => {
+                            const text = (el.textContent || "").trim();
+                            const aria = (el.getAttribute("aria-label") || "").trim();
+                            const data = (el.getAttribute("data-automation") || "").trim();
+                            return (
+                                matchesLabel(text) ||
+                                matchesLabel(aria) ||
+                                matchesData(data)
+                            );
+                        });
                         if (btn) btn.click();
-                    }"""
+                    }""",
+                    ["Show more", "Voir plus", "Load more", "Charger plus"],
+                    ["showMore", "loadMore"],
                 )
 
             clicks += 1
@@ -68,7 +111,8 @@ def click_show_more(
 
             print(
                 "[click_show_more] Iteration "
-                f"{clicks}/{max_clicks} anchorsCount={anchors_after}"
+                f"{clicks}/{max_clicks} "
+                f"clickIndex={clicks} countBefore={anchors_before} countAfter={anchors_after}"
             )
             if anchors_after > anchors_before:
                 stable_count = 0
@@ -88,7 +132,13 @@ def click_show_more(
             print(f"[click_show_more] Erreur lors de la gestion du bouton 'Show more': {e}")
             break
 
-    print(f"[click_show_more] Terminé, total de clics: {clicks}")
+    anchors_final = page.evaluate(
+        """() => document.querySelectorAll('a[href^="/en-ca/product/"]').length"""
+    )
+    print(
+        "[click_show_more] Terminé "
+        f"totalClicks={clicks} anchorsFinal={anchors_final}"
+    )
 
 
 def normalize_display_price(display_price: str) -> str:
