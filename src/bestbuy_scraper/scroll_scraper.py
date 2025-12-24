@@ -21,41 +21,40 @@ SHOW_MORE_CANDIDATES = [
 ]
 
 
+def onetrust_present(page) -> bool:
+    try:
+        return page.locator("#onetrust-consent-sdk").count() > 0
+    except Exception:
+        return False
+
+
 def _hide_onetrust_overlay(page) -> None:
     page.evaluate(
         """() => {
-            const sdk = document.querySelector('#onetrust-consent-sdk');
-            if (sdk) {
-                sdk.style.display = 'none';
-                sdk.style.pointerEvents = 'none';
+            const ids = ["onetrust-consent-sdk", "onetrust-pc-sdk", "onetrust-group-container"];
+            for (const id of ids) {
+                const el = document.getElementById(id);
+                if (el) el.style.display = "none";
             }
             document.querySelectorAll(
-                '.onetrust-pc-dark-filter, #onetrust-pc-sdk, #onetrust-group-container'
-            ).forEach((el) => {
-                if (!el) return;
-                el.style.display = 'none';
-                el.style.pointerEvents = 'none';
-            });
+                ".onetrust-pc-dark-filter, .ot-fade-in, .ot-sdk-container, .ot-overlay"
+            ).forEach((el) => el && (el.style.display = "none"));
+            document.body.style.overflow = "auto";
         }"""
     )
 
 
 def handle_onetrust(page) -> None:
     locator = page.locator("#onetrust-consent-sdk").first
-    try:
-        if locator.count() == 0 or not locator.is_visible():
-            print("[onetrust] not found")
-            return
-    except Exception:
+    if not onetrust_present(page):
         print("[onetrust] not found")
         return
-
     accept_selectors = [
+        "#onetrust-accept-btn-handler",
         'button:has-text("Accept All")',
         'button:has-text("Accept all")',
         'button:has-text("Accepter tout")',
         'button:has-text("Tout accepter")',
-        "#onetrust-accept-btn-handler",
     ]
     close_selectors = [
         'button[aria-label*="Close"]',
@@ -69,7 +68,7 @@ def handle_onetrust(page) -> None:
             continue
         try:
             if button.is_visible() and button.is_enabled():
-                button.click(timeout=5000)
+                button.click(timeout=4000)
                 clicked = True
                 break
         except Exception:
@@ -83,7 +82,7 @@ def handle_onetrust(page) -> None:
                 continue
             try:
                 if button.is_visible() and button.is_enabled():
-                    button.click(timeout=5000)
+                    button.click(timeout=4000)
                     clicked = True
                     break
             except Exception:
@@ -91,7 +90,7 @@ def handle_onetrust(page) -> None:
                 continue
 
     try:
-        locator.wait_for(state="hidden", timeout=5000)
+        locator.wait_for(state="hidden", timeout=4000)
     except Exception:
         pass
 
@@ -160,6 +159,11 @@ def click_show_more(
             button_handle.click(timeout=5000)
             total_clicks += 1
         except Exception as e:
+            if onetrust_present(page):
+                print(f"[click_show_more] Clic intercepté ({e}). Masquage OneTrust.")
+                _hide_onetrust_overlay(page)
+                log_onetrust_status(page, "after-force-hide")
+                continue
             print(f"[click_show_more] Échec du clic: {e}. arrêt.")
             break
 
@@ -388,6 +392,9 @@ def scroll_clearance_page(
 
         anchors_before_show_more = count_anchors(page)
         print(f"[scroll_clearance_page] anchorsBefore={anchors_before_show_more}")
+        if onetrust_present(page):
+            _hide_onetrust_overlay(page)
+            log_onetrust_status(page, "after-force-hide")
         # 2) Cliquer sur le bouton "Show more" autant que possible
         click_show_more(page, pause_sec=pause_sec, max_clicks=max_show_more_clicks)
 
@@ -438,6 +445,9 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
 
         anchors_before_show_more = count_anchors(page)
         print(f"[scrape_bestbuy_clearance] anchorsBefore={anchors_before_show_more}")
+        if onetrust_present(page):
+            _hide_onetrust_overlay(page)
+            log_onetrust_status(page, "after-force-hide")
         click_show_more(page, pause_sec=1.5, max_clicks=200)
 
         wait_after_show_more(page)
