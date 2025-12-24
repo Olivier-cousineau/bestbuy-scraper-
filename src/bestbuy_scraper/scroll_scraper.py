@@ -83,8 +83,20 @@ def extract_products_from_page(page) -> List[Dict]:
                 return preferred || urls[0];
             };
 
-            const anchors = Array.from(document.querySelectorAll('a[href*="/en-ca/product/"]'));
-            for (const anchor of anchors) {
+            const cards = Array.from(
+                document.querySelectorAll('[data-automation="product-list-item"]')
+            );
+            const fallbackAnchors =
+                cards.length === 0
+                    ? Array.from(document.querySelectorAll('a[href*="/en-ca/product/"]'))
+                    : [];
+            const targets = cards.length ? cards : fallbackAnchors;
+
+            for (const target of targets) {
+                const anchor = target.matches('a[href*="/en-ca/product/"]')
+                    ? target
+                    : target.querySelector('a[href*="/en-ca/product/"]');
+                if (!anchor) continue;
                 const href = anchor.getAttribute("href");
                 if (!href) continue;
                 const title = (anchor.textContent || "").trim();
