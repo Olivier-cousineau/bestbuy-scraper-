@@ -11,6 +11,7 @@ from typing import Any, Dict, Iterable, List, Optional
 
 REVIEW_COUNTER_PATTERN = re.compile(r"^\(\d+\)$")
 PID_PATTERN = re.compile(r"/(\d+)(?:[?#].*)?$")
+NUMBER_PATTERN = re.compile(r"\d[\d,.]*")
 
 
 def is_review_counter(title: str) -> bool:
@@ -29,6 +30,19 @@ def extract_pid(url: str) -> Optional[str]:
     return match.group(1)
 
 
+def extract_price(price_raw: str) -> Optional[float]:
+    """Extract the last numeric price value from a raw price string."""
+
+    matches = NUMBER_PATTERN.findall(price_raw)
+    if not matches:
+        return None
+
+    last_value = matches[-1].replace(",", "")
+    try:
+        return float(last_value)
+    except ValueError:
+        return None
+
 
 def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Normalize and validate a single clearance product entry."""
@@ -44,10 +58,14 @@ def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     if not image:
         return None
+    price = extract_price(price_raw)
+    if price is None:
+        return None
 
     return {
         "title": title,
         "url": url,
+        "price": price,
         "price_raw": price_raw,
         "image": image,
     }
