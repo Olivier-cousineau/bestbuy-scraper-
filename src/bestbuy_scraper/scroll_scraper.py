@@ -21,6 +21,25 @@ SHOW_MORE_CANDIDATES = [
 ]
 
 
+def _hide_onetrust_overlay(page) -> None:
+    page.evaluate(
+        """() => {
+            const sdk = document.querySelector('#onetrust-consent-sdk');
+            if (sdk) {
+                sdk.style.display = 'none';
+                sdk.style.pointerEvents = 'none';
+            }
+            document.querySelectorAll(
+                '.onetrust-pc-dark-filter, #onetrust-pc-sdk, #onetrust-group-container'
+            ).forEach((el) => {
+                if (!el) return;
+                el.style.display = 'none';
+                el.style.pointerEvents = 'none';
+            });
+        }"""
+    )
+
+
 def handle_onetrust(page) -> None:
     locator = page.locator("#onetrust-consent-sdk").first
     try:
@@ -54,6 +73,7 @@ def handle_onetrust(page) -> None:
                 clicked = True
                 break
         except Exception:
+            _hide_onetrust_overlay(page)
             continue
 
     if not clicked:
@@ -67,6 +87,7 @@ def handle_onetrust(page) -> None:
                     clicked = True
                     break
             except Exception:
+                _hide_onetrust_overlay(page)
                 continue
 
     try:
@@ -76,19 +97,25 @@ def handle_onetrust(page) -> None:
 
     try:
         if locator.is_visible():
-            page.evaluate(
-                """() => {
-                    const sdk = document.querySelector('#onetrust-consent-sdk');
-                    if (sdk) sdk.style.display = 'none';
-                    document.querySelectorAll(
-                        '.onetrust-pc-dark-filter, #onetrust-pc-sdk, #onetrust-group-container'
-                    ).forEach((el) => el && (el.style.display = 'none'));
-                }"""
-            )
+            _hide_onetrust_overlay(page)
     except Exception:
         pass
 
     print("[onetrust] handled")
+
+
+def log_onetrust_status(page, context: str) -> None:
+    try:
+        count = page.locator("#onetrust-consent-sdk").count()
+    except Exception:
+        count = 0
+    visible = False
+    if count > 0:
+        try:
+            visible = page.locator("#onetrust-consent-sdk").first.is_visible()
+        except Exception:
+            visible = False
+    print(f"[onetrust] {context} count={count} visible={visible}")
 
 
 def count_anchors(page) -> int:
@@ -207,6 +234,12 @@ def extract_products_from_page(page) -> List[Dict]:
     anchors = page.query_selector_all('a[href^="/en-ca/product/"]')
     anchors_found = len(anchors)
     print(f"Anchors found: {anchors_found}")
+    href_samples = []
+    for anchor in anchors[:5]:
+        href = anchor.get_attribute("href")
+        if href:
+            href_samples.append(href)
+    print(f"First 5 hrefs: {href_samples}")
 
     products = []
     seen_product_ids = set()
@@ -289,6 +322,10 @@ def extract_products_from_page(page) -> List[Dict]:
     print(f"Prices found: {prices_found} / {total_products}")
     print(f"Final anchorsFound: {anchors_found}")
     print(f"Final uniqueProducts: {total_products}")
+    print(
+        "[extract_products] "
+        f"Extracted products={total_products} uniqueProducts={total_products}"
+    )
     examples = [product for product in products if product.get("price_raw")][:3]
     for idx, product in enumerate(examples, start=1):
         print(
@@ -332,6 +369,7 @@ def scroll_clearance_page(
         print(f"[scroll_clearance_page] Opening {CLEARANCE_URL}")
         page.goto(CLEARANCE_URL, wait_until="domcontentloaded", timeout=60000)
         handle_onetrust(page)
+        log_onetrust_status(page, "post-handle")
 
         # Petit délai pour laisser la page initiale se charger
         page.wait_for_timeout(3000)
@@ -348,6 +386,8 @@ def scroll_clearance_page(
                 break
             last_height = new_height
 
+        anchors_before_show_more = count_anchors(page)
+        print(f"[scroll_clearance_page] anchorsBefore={anchors_before_show_more}")
         # 2) Cliquer sur le bouton "Show more" autant que possible
         click_show_more(page, pause_sec=pause_sec, max_clicks=max_show_more_clicks)
 
@@ -382,6 +422,7 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
         print(f"[scrape_bestbuy_clearance] Opening {CLEARANCE_URL}")
         page.goto(CLEARANCE_URL, wait_until="domcontentloaded", timeout=60000)
         handle_onetrust(page)
+        log_onetrust_status(page, "post-handle")
         page.wait_for_timeout(3000)
 
         last_height = page.evaluate("document.body.scrollHeight")
@@ -395,6 +436,8 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
                 break
             last_height = new_height
 
+        anchors_before_show_more = count_anchors(page)
+        print(f"[scrape_bestbuy_clearance] anchorsBefore={anchors_before_show_more}")
         click_show_more(page, pause_sec=1.5, max_clicks=200)
 
         wait_after_show_more(page)
