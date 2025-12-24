@@ -51,7 +51,7 @@ jobs:
       - name: Checkout econoplus repo
         uses: actions/checkout@v4
         with:
-          repository: oliviercousineau/econoplus
+          repository: Olivier-cousineau/econoplus
           ref: main
           path: _econoplus
           token: ${{ secrets.ECONOPLUS_PAT }}
