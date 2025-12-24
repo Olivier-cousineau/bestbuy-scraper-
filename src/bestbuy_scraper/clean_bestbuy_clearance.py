@@ -48,7 +48,6 @@ def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     if is_review_counter(title):
         return None
-
     if not image:
         return None
 
@@ -61,7 +60,7 @@ def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def dedupe_products(products: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Remove duplicate products based on product ID or URL."""
+    """Remove duplicate products based on BestBuy product ID."""
 
     seen: set[str] = set()
     deduped: List[Dict[str, Any]] = []
@@ -115,7 +114,7 @@ def main() -> None:
     raw_products = json.loads(args.input.read_text(encoding="utf-8"))
     cleaned_products = clean_products(raw_products)
     total_items = len(cleaned_products)
-    images_added = total_items
+    images_added = sum(1 for product in cleaned_products if product.get("image"))
 
     print(f"Products: {total_items}, Images added: {images_added}")
     if images_added == 0:
