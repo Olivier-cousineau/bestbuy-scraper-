@@ -91,10 +91,38 @@ def click_show_more(
     print(f"[click_show_more] Terminé, total de clics: {clicks}")
 
 
+def normalize_display_price(display_price: str) -> str:
+    cleaned = re.sub(r"\s+", "", display_price or "").strip()
+    if not cleaned:
+        return ""
+    match = re.search(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?", cleaned)
+    return match.group(0) if match else cleaned
+
+
+def extract_display_price(container) -> str:
+    if not container:
+        return ""
+    elem = container.query_selector('[aria-label*="$"]')
+    if elem:
+        display_price = (elem.get_attribute("aria-label") or elem.inner_text() or "").strip()
+        if display_price:
+            return display_price
+    elem = container.query_selector(
+        'span[class*="price"], div[class*="price"], [data-automation*="price"]'
+    )
+    if elem:
+        display_price = (elem.inner_text() or "").strip()
+        if display_price:
+            return display_price
+    text = container.inner_text() or ""
+    match = re.search(r"\$\s*\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})?", text)
+    return match.group(0) if match else ""
+
+
 def extract_products_from_page(page) -> List[Dict]:
     """
     Extract products directly from the live DOM after scrolling.
-    Returns a list with title, url, price_raw, and image fields.
+    Returns a list with title, url, price_raw, salePrice, and image fields.
     """
     anchors = page.query_selector_all('a[href^="/en-ca/product/"]')
     anchors_found = len(anchors)
@@ -141,6 +169,7 @@ def extract_products_from_page(page) -> List[Dict]:
 
         image = None
         price_raw = None
+        sale_price = None
         if container:
             img = container.query_selector("img")
             if img:
@@ -149,10 +178,11 @@ def extract_products_from_page(page) -> List[Dict]:
                     or img.get_attribute("data-src")
                     or img.evaluate("img => img.currentSrc")
                 )
-            text = container.inner_text() or ""
-            match = re.search(r"\\$\\s*\\d+(?:\\.\\d{2})?", text)
-            if match:
-                price_raw = match.group(0)
+            display_price = extract_display_price(container)
+            normalized_price = normalize_display_price(display_price)
+            if normalized_price:
+                price_raw = normalized_price
+                sale_price = float(re.sub(r"[^0-9.]", "", normalized_price))
 
         product_id_match = PRODUCT_ID_PATTERN.search(url_abs)
         product_id = product_id_match.group(1) if product_id_match else None
@@ -166,19 +196,23 @@ def extract_products_from_page(page) -> List[Dict]:
                 "title": title,
                 "url": url_abs,
                 "price_raw": price_raw,
+                "salePrice": sale_price,
                 "image": image,
             }
         )
 
     total_products = len(products)
     images_found = sum(1 for product in products if product.get("image"))
+    prices_found = sum(1 for product in products if product.get("price_raw"))
     print(f"Extracted products: {total_products}")
     print(f"Images found: {images_found}")
+    print(f"Prices found: {prices_found} / {total_products}")
     print(f"Final anchorsFound: {anchors_found}")
     print(f"Final uniqueProducts: {total_products}")
-    for idx, product in enumerate(products[:5], start=1):
+    examples = [product for product in products if product.get("price_raw")][:3]
+    for idx, product in enumerate(examples, start=1):
         print(
-            f"Example {idx}: {product.get('title')} -> {product.get('url')} -> {product.get('image')}"
+            f"Example {idx}: {product.get('title')} -> {product.get('price_raw')} -> {product.get('url')}"
         )
     return products
 
