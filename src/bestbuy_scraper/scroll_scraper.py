@@ -63,32 +63,65 @@ def extract_products_from_page(page) -> List[Dict]:
             const results = [];
             const seen = new Set();
 
+            const CARD_SELECTORS = [
+                "div.style-module_sliderTarget__z6XJY",
+                "a[href*='/en-ca/product/']",
+                "a[href*='/product/']",
+                "[data-automation='product-card']",
+                "[class*='productCard']",
+                "[class*='product-card']"
+            ];
+
             const extractPriceToken = (container) => {
                 if (!container) return null;
                 const text = container.innerText || "";
-                const tokens = text.split(/\\s+/).filter(Boolean);
-                for (const token of tokens) {
-                    if (token.includes("$")) {
-                        return token;
+                const lines = text.split(/\\n+/).map((line) => line.trim()).filter(Boolean);
+                for (const line of lines) {
+                    if (line.includes("$")) {
+                        return line;
                     }
                 }
                 return null;
             };
 
-            const cards = Array.from(
-                document.querySelectorAll("div.style-module_sliderTarget__z6XJY")
-            );
+            const getCardForAnchor = (anchor) => {
+                if (!anchor) return null;
+                return (
+                    anchor.closest(
+                        "[data-automation='product-card'], [class*='product-card'], [class*='productCard'], [class*='product']"
+                    ) || anchor.closest("div")
+                );
+            };
 
-            for (const card of cards) {
-                const titleEl = card.querySelector("span.truncate_gQkhK");
-                const title = titleEl ? titleEl.innerText.trim() : "";
-                if (!title) continue;
-                if (/^\\(\\d+\\)$/.test(title) || title.startsWith("(")) {
-                    continue;
+            let chosenSelector = null;
+            let cardNodes = [];
+            for (const selector of CARD_SELECTORS) {
+                const nodes = Array.from(document.querySelectorAll(selector));
+                if (nodes.length > 0) {
+                    chosenSelector = selector;
+                    cardNodes = nodes;
+                    break;
                 }
+            }
 
-                const anchor = card.querySelector('a[href*="/product/"]');
-                if (!anchor) continue;
+            let anchors = [];
+            if (chosenSelector && chosenSelector.startsWith("a[")) {
+                anchors = cardNodes;
+            } else if (cardNodes.length > 0) {
+                anchors = cardNodes
+                    .map((node) =>
+                        node.querySelector("a[href*='/en-ca/product/'], a[href*='/product/']")
+                    )
+                    .filter(Boolean);
+            } else {
+                anchors = Array.from(
+                    document.querySelectorAll(
+                        "a[href*='/en-ca/product/'], a[href*='/product/']"
+                    )
+                );
+            }
+
+            for (const anchor of anchors) {
                 const href = anchor.getAttribute("href");
                 if (!href) continue;
                 const url = href.startsWith("/")
@@ -96,7 +129,20 @@ def extract_products_from_page(page) -> List[Dict]:
                     : href;
                 if (seen.has(url)) continue;
 
-                const img = card.querySelector("img");
+                const card = getCardForAnchor(anchor);
+                const titleEl = card
+                    ? card.querySelector("span.truncate, span[class*='truncate']")
+                    : null;
+                const rawTitle = titleEl
+                    ? titleEl.innerText.trim()
+                    : (anchor.innerText || "").trim();
+                const title = rawTitle.replace(/\\s+/g, " ").trim();
+                if (!title) continue;
+                if (/^\\(\\d+\\)$/.test(title) || title.startsWith("(")) {
+                    continue;
+                }
+
+                const img = card ? card.querySelector("img") : null;
                 const image = img
                     ? img.getAttribute("src") ||
                       img.getAttribute("data-src") ||
@@ -128,6 +174,16 @@ def extract_products_from_page(page) -> List[Dict]:
     ):
         print(f"Example {idx}: {product.get('title')} -> {product.get('image')}")
     return products
+
+
+def wait_after_show_more(page) -> None:
+    print("[wait_after_show_more] Waiting after show more clicks.")
+    page.wait_for_timeout(2000)
+    try:
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except Exception as e:
+        print(f"[wait_after_show_more] networkidle wait failed ({e}), using domcontentloaded.")
+        page.wait_for_load_state("domcontentloaded", timeout=30000)
 
 
 def scroll_clearance_page(max_scrolls: int = 5, pause_sec: float = 1.5, max_show_more_clicks: int = 40) -> str:
@@ -168,6 +224,8 @@ def scroll_clearance_page(max_scrolls: int = 5, pause_sec: float = 1.5, max_show
 
         # 2) Cliquer sur le bouton "Show more" autant que possible
         click_show_more(page, pause_sec=pause_sec, max_clicks=max_show_more_clicks)
+
+        wait_after_show_more(page)
 
         # 3) HTML final après tous les clicks
         html = page.content()
@@ -212,8 +270,30 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
 
         click_show_more(page, pause_sec=1.5, max_clicks=40)
 
+        wait_after_show_more(page)
+
         products = extract_products_from_page(page)
         if not products:
+            debug_dir = Path("outputs/debug")
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            html_path = debug_dir / "bb_after_showmore.html"
+            screenshot_path = debug_dir / "bb_after_showmore.png"
+            html_path.write_text(page.content(), encoding="utf-8")
+            page.screenshot(path=str(screenshot_path), full_page=True)
+
+            anchor_count = page.evaluate(
+                """() => document.querySelectorAll("a[href*='/product/']").length"""
+            )
+            image_count = page.evaluate("""() => document.querySelectorAll("img").length""")
+            sample_hrefs = page.evaluate(
+                """() => Array.from(
+                    document.querySelectorAll("a[href*='/product/']")
+                ).slice(0, 5).map((anchor) => anchor.getAttribute("href"))"""
+            )
+            print(f"[debug] Anchor count: {anchor_count}")
+            print(f"[debug] Image count: {image_count}")
+            print(f"[debug] Sample hrefs: {sample_hrefs}")
+
             browser.close()
             raise RuntimeError("No products extracted from BestBuy clearance page.")
         html = page.content()
