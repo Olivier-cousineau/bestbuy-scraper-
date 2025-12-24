@@ -66,7 +66,7 @@ jobs:
         run: |
           set -e
           mkdir -p _econoplus/public/bestbuy
-          cp data/clearance_products_full.json _econoplus/public/bestbuy/online.json
+          cp outputs/bestbuy/clearance.json _econoplus/public/bestbuy/online.json
 
       # 6) Commit & push vers econoplus
       - name: Commit & push to econoplus
