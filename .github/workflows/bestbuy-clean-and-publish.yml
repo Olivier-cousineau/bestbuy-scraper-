@@ -56,11 +56,11 @@ jobs:
           path: _econoplus
           token: ${{ secrets.ECONOPLUS_PAT }}
 
-      # 5) Copier le fichier nettoyé dans l'autre repo
-      - name: Copier clearance.json vers econoplus
+      # 5) Copier le fichier brut dans l'autre repo
+      - name: Copier clearance.json brut vers econoplus
         run: |
           mkdir -p _econoplus/outputs/bestbuy
-          cp outputs/bestbuy/clearance.json _econoplus/outputs/bestbuy/clearance.json
+          cp data/clearance_products_full.json _econoplus/outputs/bestbuy/clearance.json
 
       - name: Copy BestBuy online.json to econoplus
         run: |
