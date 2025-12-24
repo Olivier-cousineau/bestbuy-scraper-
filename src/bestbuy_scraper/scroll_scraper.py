@@ -2,6 +2,7 @@
 
 import json
 import random
+import re
 import time
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -58,121 +59,84 @@ def extract_products_from_page(page) -> List[Dict]:
     Extract products directly from the live DOM after scrolling.
     Returns a list with title, url, price_raw, and image fields.
     """
-    products = page.evaluate(
-        """() => {
-            const results = [];
-            const seen = new Set();
+    anchors = page.query_selector_all('a[href^="/en-ca/product/"]')
+    print(f"Anchors found: {len(anchors)}")
 
-            const CARD_SELECTORS = [
-                "div.style-module_sliderTarget__z6XJY",
-                "a[href*='/en-ca/product/']",
-                "a[href*='/product/']",
-                "[data-automation='product-card']",
-                "[class*='productCard']",
-                "[class*='product-card']"
-            ];
+    products = []
+    seen = set()
 
-            const extractPriceToken = (container) => {
-                if (!container) return null;
-                const text = container.innerText || "";
-                const lines = text.split(/\\n+/).map((line) => line.trim()).filter(Boolean);
-                for (const line of lines) {
-                    if (line.includes("$")) {
-                        return line;
+    for anchor in anchors:
+        href = anchor.get_attribute("href")
+        if not href:
+            continue
+        href_base = href.split("?", 1)[0].split("#", 1)[0]
+        if not href_base:
+            continue
+        if href_base in seen:
+            continue
+
+        url_abs = f"https://www.bestbuy.ca{href_base}"
+        container_handle = anchor.evaluate_handle(
+            """(a) => {
+                const preferred = a.closest("[class*='product'], [class*='Product'], [data-automation]");
+                if (preferred) return preferred;
+                let node = a.closest("div") || a.parentElement;
+                let depth = 0;
+                while (node && depth < 6) {
+                    if (node.matches &&
+                        node.matches("[class*='product'], [class*='Product'], [data-automation]")) {
+                        return node;
                     }
+                    node = node.parentElement;
+                    depth += 1;
                 }
-                return null;
-            };
+                return a.closest("div") || a.parentElement || a;
+            }"""
+        )
+        container = container_handle.as_element()
 
-            const getCardForAnchor = (anchor) => {
-                if (!anchor) return null;
-                return (
-                    anchor.closest(
-                        "[data-automation='product-card'], [class*='product-card'], [class*='productCard'], [class*='product']"
-                    ) || anchor.closest("div")
-                );
-            };
+        title = (anchor.inner_text() or "").strip()
+        if not title:
+            title = (anchor.get_attribute("aria-label") or "").strip()
+        if not title:
+            continue
+        if re.match(r"^\(\d+\)$", title):
+            continue
 
-            let chosenSelector = null;
-            let cardNodes = [];
-            for (const selector of CARD_SELECTORS) {
-                const nodes = Array.from(document.querySelectorAll(selector));
-                if (nodes.length > 0) {
-                    chosenSelector = selector;
-                    cardNodes = nodes;
-                    break;
-                }
+        image = None
+        price_raw = None
+        if container:
+            img = container.query_selector("img")
+            if img:
+                image = (
+                    img.get_attribute("src")
+                    or img.get_attribute("data-src")
+                    or img.evaluate("img => img.currentSrc")
+                )
+            text = container.inner_text() or ""
+            match = re.search(r"\\$\\s*\\d+(?:\\.\\d{2})?", text)
+            if match:
+                price_raw = match.group(0)
+
+        products.append(
+            {
+                "title": title,
+                "url": url_abs,
+                "price_raw": price_raw,
+                "image": image,
             }
+        )
+        seen.add(href_base)
 
-            let anchors = [];
-            if (chosenSelector && chosenSelector.startsWith("a[")) {
-                anchors = cardNodes;
-            } else if (cardNodes.length > 0) {
-                anchors = cardNodes
-                    .map((node) =>
-                        node.querySelector("a[href*='/en-ca/product/'], a[href*='/product/']")
-                    )
-                    .filter(Boolean);
-            } else {
-                anchors = Array.from(
-                    document.querySelectorAll(
-                        "a[href*='/en-ca/product/'], a[href*='/product/']"
-                    )
-                );
-            }
-
-            for (const anchor of anchors) {
-                const href = anchor.getAttribute("href");
-                if (!href) continue;
-                const url = href.startsWith("/")
-                    ? `https://www.bestbuy.ca${href}`
-                    : href;
-                if (seen.has(url)) continue;
-
-                const card = getCardForAnchor(anchor);
-                const titleEl = card
-                    ? card.querySelector("span.truncate, span[class*='truncate']")
-                    : null;
-                const rawTitle = titleEl
-                    ? titleEl.innerText.trim()
-                    : (anchor.innerText || "").trim();
-                const title = rawTitle.replace(/\\s+/g, " ").trim();
-                if (!title) continue;
-                if (/^\\(\\d+\\)$/.test(title) || title.startsWith("(")) {
-                    continue;
-                }
-
-                const img = card ? card.querySelector("img") : null;
-                const image = img
-                    ? img.getAttribute("src") ||
-                      img.getAttribute("data-src") ||
-                      img.currentSrc
-                    : null;
-
-                const priceRaw = extractPriceToken(card);
-
-                results.push({
-                    title,
-                    url,
-                    price_raw: priceRaw,
-                    image,
-                });
-                seen.add(url);
-            }
-
-            return results;
-        }"""
-    )
     total_products = len(products)
     images_found = sum(1 for product in products if product.get("image"))
     print(f"Extracted products: {total_products}")
     print(f"Images found: {images_found}")
-    for idx, product in enumerate(
-        [product for product in products if product.get("image")][:2]
-        or products[:2],
-        start=1,
-    ):
-        print(f"Example {idx}: {product.get('title')} -> {product.get('image')}")
+    print(f"Unique products after dedup: {total_products}")
+    for idx, product in enumerate(products[:5], start=1):
+        print(
+            f"Example {idx}: {product.get('title')} -> {product.get('url')} -> {product.get('image')}"
+        )
     return products
 
 
