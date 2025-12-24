@@ -12,6 +12,17 @@ from playwright.sync_api import sync_playwright
 
 CLEARANCE_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
 PRODUCT_ID_PATTERN = re.compile(r"/(\d+)(?:[?#].*)?$")
+PRODUCT_ANCHOR_SEL = 'a[href^="/en-ca/product/"]'
+SHOW_MORE_CANDIDATES = [
+    'button:has-text("Show more")',
+    'button:has-text("Voir plus")',
+    'button:has-text("Load more")',
+    'button:has-text("Charger plus")',
+]
+
+
+def count_anchors(page) -> int:
+    return page.locator(PRODUCT_ANCHOR_SEL).count()
 
 
 def click_show_more(
@@ -28,116 +39,65 @@ def click_show_more(
     - Le bouton est identifié par data-automation="load-more"
     - On limite le nombre de clics à max_clicks par sécurité.
     """
-    clicks = 0
-    stable_count = 0
-    selectors = [
-        'button:has-text("Show more")',
-        'button:has-text("Voir plus")',
-        'button:has-text("Load more")',
-        'button:has-text("Charger plus")',
-        '[aria-label*="Show more"]',
-        '[aria-label*="Voir plus"]',
-        '[data-automation*="showMore"]',
-        '[data-automation*="loadMore"]',
-    ]
-    button_selector = ", ".join(selectors)
-    while clicks < max_clicks:
-        anchors_before = page.evaluate(
-            """() => document.querySelectorAll('a[href^="/en-ca/product/"]').length"""
-        )
-        locator = page.locator(button_selector)
-        try:
-            if not locator or locator.count() == 0:
-                print("[click_show_more] Aucun bouton 'Show more' trouvé, arrêt.")
-                break
-            button_handle = None
-            for idx in range(locator.count()):
-                candidate = locator.nth(idx)
-                if not candidate.is_visible():
+    stable_rounds = 0
+    total_clicks = 0
+    for _ in range(max_clicks):
+        anchors_before = count_anchors(page)
+        button_handle = None
+        for selector in SHOW_MORE_CANDIDATES:
+            locator = page.locator(selector).first
+            if locator.count() > 0:
+                try:
+                    if locator.is_visible() and locator.is_enabled():
+                        button_handle = locator
+                        break
+                except Exception:
                     continue
-                is_disabled = candidate.evaluate(
-                    "el => el.disabled || el.getAttribute('aria-disabled') === 'true'"
-                )
-                if is_disabled:
-                    continue
-                button_handle = candidate
-                break
 
-            if not button_handle:
-                print("[click_show_more] Bouton 'Show more' absent ou désactivé, arrêt.")
-                break
-
-            print(f"[click_show_more] Bouton détecté — clic {clicks+1}/{max_clicks}…")
-            try:
-                button_handle.scroll_into_view_if_needed(timeout=8000)
-                button_handle.click(timeout=8000)
-            except Exception as e:
-                print(f"[click_show_more] Échec du clic normal ({e}), tentative via JS…")
-                page.evaluate(
-                    """(labels, dataKeys) => {
-                        const matchesLabel = (value) =>
-                            labels.some((label) => value.includes(label));
-                        const matchesData = (value) =>
-                            dataKeys.some((key) => value.includes(key));
-                        const candidates = Array.from(
-                            document.querySelectorAll("button, [aria-label], [data-automation]")
-                        );
-                        const btn = candidates.find((el) => {
-                            const text = (el.textContent || "").trim();
-                            const aria = (el.getAttribute("aria-label") || "").trim();
-                            const data = (el.getAttribute("data-automation") || "").trim();
-                            return (
-                                matchesLabel(text) ||
-                                matchesLabel(aria) ||
-                                matchesData(data)
-                            );
-                        });
-                        if (btn) btn.click();
-                    }""",
-                    ["Show more", "Voir plus", "Load more", "Charger plus"],
-                    ["showMore", "loadMore"],
-                )
-
-            clicks += 1
-            wait_deadline = time.time() + wait_timeout_sec
-            anchors_after = anchors_before
-            while time.time() < wait_deadline:
-                anchors_after = page.evaluate(
-                    """() => document.querySelectorAll('a[href^="/en-ca/product/"]').length"""
-                )
-                if anchors_after > anchors_before:
-                    break
-                page.wait_for_timeout(int(poll_interval_sec * 1000))
-
-            print(
-                "[click_show_more] Iteration "
-                f"{clicks}/{max_clicks} "
-                f"clickIndex={clicks} countBefore={anchors_before} countAfter={anchors_after}"
-            )
-            if anchors_after > anchors_before:
-                stable_count = 0
-            else:
-                stable_count += 1
-                if stable_count >= stable_iterations:
-                    print(
-                        "[click_show_more] Stabilisation détectée "
-                        f"({stable_count} itérations sans hausse), arrêt."
-                    )
-                    break
-
-            sleep_time = pause_sec + random.uniform(0.5, 1.5)
-            page.wait_for_timeout(int(sleep_time * 1000))
-
-        except Exception as e:
-            print(f"[click_show_more] Erreur lors de la gestion du bouton 'Show more': {e}")
+        if button_handle is None:
+            print(f"[click_show_more] Aucun bouton trouvé. arrêt. anchors={anchors_before}")
             break
 
-    anchors_final = page.evaluate(
-        """() => document.querySelectorAll('a[href^="/en-ca/product/"]').length"""
-    )
+        try:
+            button_handle.scroll_into_view_if_needed()
+            button_handle.click(timeout=5000)
+            total_clicks += 1
+        except Exception as e:
+            print(f"[click_show_more] Échec du clic: {e}. arrêt.")
+            break
+
+        grew = False
+        wait_deadline = time.time() + wait_timeout_sec
+        while time.time() < wait_deadline:
+            page.wait_for_timeout(int(poll_interval_sec * 1000))
+            anchors_after = count_anchors(page)
+            if anchors_after > anchors_before:
+                grew = True
+                break
+
+        anchors_after = count_anchors(page)
+        print(
+            "[click_show_more] click="
+            f"{total_clicks} anchors {anchors_before} -> {anchors_after}"
+        )
+
+        if not grew:
+            stable_rounds += 1
+        else:
+            stable_rounds = 0
+
+        if stable_rounds >= stable_iterations:
+            print(f"[click_show_more] stable {stable_rounds} rounds. stop.")
+            break
+
+        if pause_sec > 0:
+            sleep_time = pause_sec + random.uniform(0.2, 0.8)
+            page.wait_for_timeout(int(sleep_time * 1000))
+
+    anchors_final = count_anchors(page)
     print(
         "[click_show_more] Terminé "
-        f"totalClicks={clicks} anchorsFinal={anchors_final}"
+        f"totalClicks={total_clicks} anchorsFinal={anchors_final}"
     )
 
 
