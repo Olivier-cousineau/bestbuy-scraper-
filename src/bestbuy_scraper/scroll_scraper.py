@@ -11,9 +11,17 @@ from playwright.sync_api import sync_playwright
 
 
 CLEARANCE_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
+PRODUCT_ID_PATTERN = re.compile(r"/(\d+)(?:[?#].*)?$")
 
 
-def click_show_more(page, pause_sec: float = 1.5, max_clicks: int = 40):
+def click_show_more(
+    page,
+    pause_sec: float = 1.5,
+    max_clicks: int = 200,
+    stable_iterations: int = 3,
+    wait_timeout_sec: float = 12.0,
+    poll_interval_sec: float = 0.5,
+):
     """
     Clique sur le bouton 'Show more' BestBuy autant de fois que possible.
 
@@ -21,7 +29,11 @@ def click_show_more(page, pause_sec: float = 1.5, max_clicks: int = 40):
     - On limite le nombre de clics à max_clicks par sécurité.
     """
     clicks = 0
+    stable_count = 0
     while clicks < max_clicks:
+        anchors_before = page.evaluate(
+            """() => document.querySelectorAll('a[href^="/en-ca/product/"]').length"""
+        )
         locator = page.locator('button[data-automation="load-more"]')
         try:
             if not locator or locator.count() == 0:
@@ -44,6 +56,31 @@ def click_show_more(page, pause_sec: float = 1.5, max_clicks: int = 40):
                 )
 
             clicks += 1
+            wait_deadline = time.time() + wait_timeout_sec
+            anchors_after = anchors_before
+            while time.time() < wait_deadline:
+                anchors_after = page.evaluate(
+                    """() => document.querySelectorAll('a[href^="/en-ca/product/"]').length"""
+                )
+                if anchors_after > anchors_before:
+                    break
+                page.wait_for_timeout(int(poll_interval_sec * 1000))
+
+            print(
+                "[click_show_more] Iteration "
+                f"{clicks}/{max_clicks} anchorsCount={anchors_after}"
+            )
+            if anchors_after > anchors_before:
+                stable_count = 0
+            else:
+                stable_count += 1
+                if stable_count >= stable_iterations:
+                    print(
+                        "[click_show_more] Stabilisation détectée "
+                        f"({stable_count} itérations sans hausse), arrêt."
+                    )
+                    break
+
             sleep_time = pause_sec + random.uniform(0.5, 1.5)
             page.wait_for_timeout(int(sleep_time * 1000))
 
@@ -60,10 +97,11 @@ def extract_products_from_page(page) -> List[Dict]:
     Returns a list with title, url, price_raw, and image fields.
     """
     anchors = page.query_selector_all('a[href^="/en-ca/product/"]')
-    print(f"Anchors found: {len(anchors)}")
+    anchors_found = len(anchors)
+    print(f"Anchors found: {anchors_found}")
 
     products = []
-    seen = set()
+    seen_product_ids = set()
 
     for anchor in anchors:
         href = anchor.get_attribute("href")
@@ -71,8 +109,6 @@ def extract_products_from_page(page) -> List[Dict]:
             continue
         href_base = href.split("?", 1)[0].split("#", 1)[0]
         if not href_base:
-            continue
-        if href_base in seen:
             continue
 
         url_abs = f"https://www.bestbuy.ca{href_base}"
@@ -118,6 +154,13 @@ def extract_products_from_page(page) -> List[Dict]:
             if match:
                 price_raw = match.group(0)
 
+        product_id_match = PRODUCT_ID_PATTERN.search(url_abs)
+        product_id = product_id_match.group(1) if product_id_match else None
+        if product_id:
+            if product_id in seen_product_ids:
+                continue
+            seen_product_ids.add(product_id)
+
         products.append(
             {
                 "title": title,
@@ -126,13 +169,13 @@ def extract_products_from_page(page) -> List[Dict]:
                 "image": image,
             }
         )
-        seen.add(href_base)
 
     total_products = len(products)
     images_found = sum(1 for product in products if product.get("image"))
     print(f"Extracted products: {total_products}")
     print(f"Images found: {images_found}")
-    print(f"Unique products after dedup: {total_products}")
+    print(f"Final anchorsFound: {anchors_found}")
+    print(f"Final uniqueProducts: {total_products}")
     for idx, product in enumerate(products[:5], start=1):
         print(
             f"Example {idx}: {product.get('title')} -> {product.get('url')} -> {product.get('image')}"
@@ -150,7 +193,11 @@ def wait_after_show_more(page) -> None:
         page.wait_for_load_state("domcontentloaded", timeout=30000)
 
 
-def scroll_clearance_page(max_scrolls: int = 5, pause_sec: float = 1.5, max_show_more_clicks: int = 40) -> str:
+def scroll_clearance_page(
+    max_scrolls: int = 5,
+    pause_sec: float = 1.5,
+    max_show_more_clicks: int = 200,
+) -> str:
     """
     Ouvre la page clearance BestBuy et :
       1) fait quelques scrolls initiaux
@@ -232,7 +279,7 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
                 break
             last_height = new_height
 
-        click_show_more(page, pause_sec=1.5, max_clicks=40)
+        click_show_more(page, pause_sec=1.5, max_clicks=200)
 
         wait_after_show_more(page)
 

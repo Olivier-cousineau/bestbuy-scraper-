@@ -8,10 +8,9 @@ import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
-from urllib.parse import urlsplit, urlunsplit
 
 REVIEW_COUNTER_PATTERN = re.compile(r"^\(\d+\)$")
-PID_PATTERN = re.compile(r"/(\d+)(?:$|\\?)")
+PID_PATTERN = re.compile(r"/(\d+)(?:[?#].*)?$")
 
 
 def is_review_counter(title: str) -> bool:
@@ -29,12 +28,6 @@ def extract_pid(url: str) -> Optional[str]:
         return None
     return match.group(1)
 
-
-def normalize_url(url: str) -> str:
-    """Normalize a BestBuy product URL by stripping query and fragments."""
-
-    parts = urlsplit(url)
-    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
 
 
 def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -67,10 +60,11 @@ def dedupe_products(products: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     deduped: List[Dict[str, Any]] = []
     for product in products:
         url = product["url"]
-        key = extract_pid(url) or normalize_url(url)
-        if key in seen:
-            continue
-        seen.add(key)
+        product_id = extract_pid(url)
+        if product_id:
+            if product_id in seen:
+                continue
+            seen.add(product_id)
         deduped.append(product)
     return deduped
 
