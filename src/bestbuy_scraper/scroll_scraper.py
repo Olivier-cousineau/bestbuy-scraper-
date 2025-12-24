@@ -6,8 +6,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 
 CLEARANCE_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
@@ -54,76 +53,66 @@ def click_show_more(page, pause_sec: float = 1.5, max_clicks: int = 40):
     print(f"[click_show_more] Terminé, total de clics: {clicks}")
 
 
-def extract_products_from_html(html: str) -> List[Dict]:
+def extract_products_from_page(page) -> List[Dict]:
     """
-    Parse tous les produits depuis le HTML final (après scroll).
-    Stratégie simple et robuste :
-      - on cherche tous les <a> avec href contenant '/en-ca/product/'
-      - on prend le texte comme titre
-      - on essaie de trouver un prix proche
+    Extract products directly from the live DOM after scrolling.
+    Returns a list with title, url, price_raw, and image fields.
     """
-    soup = BeautifulSoup(html, "html.parser")
-    products = []
-    seen_urls = set()
+    products = page.evaluate(
+        """() => {
+            const results = [];
+            const seen = new Set();
 
-    for a in soup.find_all("a", href=True):
-        href = a["href"]
-        if "/en-ca/product/" not in href:
-            continue
+            const extractPrice = (container) => {
+                if (!container) return null;
+                const text = container.innerText || "";
+                const match = text.match(/\\$\\s*\\d[\\d,.]*/);
+                return match ? match[0].trim() : null;
+            };
 
-        full_url = href
-        if full_url.startswith("/"):
-            full_url = "https://www.bestbuy.ca" + full_url
+            const extractImage = (container) => {
+                if (!container) return null;
+                const imgs = Array.from(container.querySelectorAll("img"));
+                const urls = [];
+                for (const img of imgs) {
+                    const src = img.getAttribute("src") || img.getAttribute("data-src");
+                    if (src) urls.push(src);
+                }
+                if (!urls.length) return null;
+                const preferred = urls.find((url) => url.includes("bbycastatic"));
+                return preferred || urls[0];
+            };
 
-        if full_url in seen_urls:
-            continue
+            const anchors = Array.from(document.querySelectorAll('a[href*="/en-ca/product/"]'));
+            for (const anchor of anchors) {
+                const href = anchor.getAttribute("href");
+                if (!href) continue;
+                const title = (anchor.textContent || "").trim();
+                if (!title) continue;
+                const url = new URL(href, "https://www.bestbuy.ca").toString();
+                if (seen.has(url)) continue;
 
-        title = a.get_text(strip=True)
-        if not title:
-            continue
+                const container =
+                    anchor.closest('[data-automation="product-list-item"]') ||
+                    anchor.closest("article") ||
+                    anchor.parentElement;
 
-        # Chercher un prix proche dans les siblings ou parents
-        price_text = None
+                const priceRaw = extractPrice(container);
+                const image = extractImage(container || anchor);
 
-        # 1) siblings après le lien
-        for sibling in a.next_siblings:
-            text = ""
-            if hasattr(sibling, "get_text"):
-                text = sibling.get_text(strip=True)
-            else:
-                text = str(sibling).strip()
-            if "$" in text:
-                price_text = text
-                break
-
-        # 2) si rien trouvé, essayer un parent
-        if not price_text:
-            parent = a.parent
-            for _ in range(3):  # remonter maximum 3 niveaux
-                if not parent:
-                    break
-                text = parent.get_text(strip=True)
-                # heuristique très simple pour un prix
-                if "$" in text:
-                    # on prend la première occurence contenant $
-                    for token in text.split():
-                        if "$" in token:
-                            price_text = token
-                            break
-                if price_text:
-                    break
-                parent = parent.parent if hasattr(parent, "parent") else None
-
-        products.append(
-            {
-                "title": title,
-                "url": full_url,
-                "price_raw": price_text,
+                results.push({
+                    title,
+                    url,
+                    price_raw: priceRaw,
+                    image,
+                });
+                seen.add(url);
             }
-        )
-        seen_urls.add(full_url)
 
-    print(f"[extract_products_from_html] Found {len(products)} products.")
+            return results;
+        }"""
+    )
+    print(f"[extract_products_from_page] Found {len(products)} products.")
     return products
 
 
@@ -181,8 +170,38 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
     Retourne un tuple ``(html, products)`` pour pouvoir persister le HTML brut
     ainsi que la liste d'objets JSON.
     """
-    html = scroll_clearance_page()
-    products = extract_products_from_html(html)
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent=(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+            viewport={"width": 1280, "height": 720},
+        )
+        page = context.new_page()
+        print(f"[scrape_bestbuy_clearance] Opening {CLEARANCE_URL}")
+        page.goto(CLEARANCE_URL, wait_until="domcontentloaded", timeout=60000)
+        page.wait_for_timeout(3000)
+
+        last_height = page.evaluate("document.body.scrollHeight")
+        for i in range(5):
+            print(f"[scrape_bestbuy_clearance] Initial scroll {i+1}/5")
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            sleep_time = 1.5 + random.uniform(0.2, 0.8)
+            page.wait_for_timeout(int(sleep_time * 1000))
+            new_height = page.evaluate("document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
+
+        click_show_more(page, pause_sec=1.5, max_clicks=40)
+
+        products = extract_products_from_page(page)
+        html = page.content()
+        browser.close()
+
     return html, products
 
 
