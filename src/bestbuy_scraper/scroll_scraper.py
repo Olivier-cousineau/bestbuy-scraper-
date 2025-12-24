@@ -63,54 +63,47 @@ def extract_products_from_page(page) -> List[Dict]:
             const results = [];
             const seen = new Set();
 
-            const extractPrice = (container) => {
+            const extractPriceToken = (container) => {
                 if (!container) return null;
                 const text = container.innerText || "";
-                const match = text.match(/\\$\\s*\\d[\\d,.]*/);
-                return match ? match[0].trim() : null;
-            };
-
-            const extractImage = (container) => {
-                if (!container) return null;
-                const imgs = Array.from(container.querySelectorAll("img"));
-                const urls = [];
-                for (const img of imgs) {
-                    const src = img.getAttribute("src") || img.getAttribute("data-src");
-                    if (src) urls.push(src);
+                const tokens = text.split(/\\s+/).filter(Boolean);
+                for (const token of tokens) {
+                    if (token.includes("$")) {
+                        return token;
+                    }
                 }
-                if (!urls.length) return null;
-                const preferred = urls.find((url) => url.includes("bbycastatic"));
-                return preferred || urls[0];
+                return null;
             };
 
             const cards = Array.from(
-                document.querySelectorAll('[data-automation="product-list-item"]')
+                document.querySelectorAll("div.style-module_sliderTarget__z6XJY")
             );
-            const fallbackAnchors =
-                cards.length === 0
-                    ? Array.from(document.querySelectorAll('a[href*="/en-ca/product/"]'))
-                    : [];
-            const targets = cards.length ? cards : fallbackAnchors;
 
-            for (const target of targets) {
-                const anchor = target.matches('a[href*="/en-ca/product/"]')
-                    ? target
-                    : target.querySelector('a[href*="/en-ca/product/"]');
+            for (const card of cards) {
+                const titleEl = card.querySelector("span.truncate_gQkhK");
+                const title = titleEl ? titleEl.innerText.trim() : "";
+                if (!title) continue;
+                if (/^\\(\\d+\\)$/.test(title) || title.startsWith("(")) {
+                    continue;
+                }
+
+                const anchor = card.querySelector('a[href*="/product/"]');
                 if (!anchor) continue;
                 const href = anchor.getAttribute("href");
                 if (!href) continue;
-                const title = (anchor.textContent || "").trim();
-                if (!title) continue;
-                const url = new URL(href, "https://www.bestbuy.ca").toString();
+                const url = href.startsWith("/")
+                    ? `https://www.bestbuy.ca${href}`
+                    : href;
                 if (seen.has(url)) continue;
 
-                const container =
-                    anchor.closest('[data-automation="product-list-item"]') ||
-                    anchor.closest("article") ||
-                    anchor.parentElement;
+                const img = card.querySelector("img");
+                const image = img
+                    ? img.getAttribute("src") ||
+                      img.getAttribute("data-src") ||
+                      img.currentSrc
+                    : null;
 
-                const priceRaw = extractPrice(container);
-                const image = extractImage(container || anchor);
+                const priceRaw = extractPriceToken(card);
 
                 results.push({
                     title,
@@ -124,7 +117,16 @@ def extract_products_from_page(page) -> List[Dict]:
             return results;
         }"""
     )
-    print(f"[extract_products_from_page] Found {len(products)} products.")
+    total_products = len(products)
+    images_found = sum(1 for product in products if product.get("image"))
+    print(f"Extracted products: {total_products}")
+    print(f"Images found: {images_found}")
+    for idx, product in enumerate(
+        [product for product in products if product.get("image")][:2]
+        or products[:2],
+        start=1,
+    ):
+        print(f"Example {idx}: {product.get('title')} -> {product.get('image')}")
     return products
 
 
@@ -211,6 +213,9 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
         click_show_more(page, pause_sec=1.5, max_clicks=40)
 
         products = extract_products_from_page(page)
+        if not products:
+            browser.close()
+            raise RuntimeError("No products extracted from BestBuy clearance page.")
         html = page.content()
         browser.close()
 
