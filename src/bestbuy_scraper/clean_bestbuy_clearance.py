@@ -17,7 +17,8 @@ PID_PATTERN = re.compile(r"/(\d+)(?:$|\\?)")
 def is_review_counter(title: str) -> bool:
     """Return True when the title is just a review counter like "(24)"."""
 
-    return bool(REVIEW_COUNTER_PATTERN.fullmatch(title.strip()))
+    stripped = title.strip()
+    return bool(REVIEW_COUNTER_PATTERN.fullmatch(stripped)) or stripped.startswith("(")
 
 
 def extract_pid(url: str) -> Optional[str]:
