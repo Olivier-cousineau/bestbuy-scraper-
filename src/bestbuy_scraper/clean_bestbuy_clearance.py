@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 REVIEW_COUNTER_PATTERN = re.compile(r"^\(\d+\)$")
 NUMBER_PATTERN = re.compile(r"\d+(?:\.\d+)?")
+PID_PATTERN = re.compile(r"/(\d+)(?:$|\\?)")
 
 
 def is_review_counter(title: str) -> bool:
@@ -36,6 +38,26 @@ def extract_price(price_raw: str) -> Optional[float]:
         return None
 
 
+def extract_pid(url: str) -> Optional[str]:
+    """Extract the product ID (pid) from the end of a BestBuy product URL."""
+
+    match = PID_PATTERN.search(url)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def build_image_url(pid: str) -> Optional[str]:
+    """Build the BestBuy image URL for a product ID."""
+
+    if len(pid) < 5:
+        return None
+    return (
+        "https://multimedia.bbycastatic.ca/multimedia/Products/500x500/"
+        f"{pid[:3]}/{pid[:5]}/{pid}.jpg"
+    )
+
+
 def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Normalize and validate a single clearance product entry."""
 
@@ -52,11 +74,16 @@ def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if price is None:
         return None
 
+    pid = extract_pid(url)
+    image = build_image_url(pid) if pid else None
+
     return {
         "title": title,
+        "name": title,
         "url": url,
         "price": price,
         "price_raw": price_raw,
+        "image": image,
     }
 
 
@@ -99,6 +126,13 @@ def main() -> None:
 
     raw_products = json.loads(args.input.read_text(encoding="utf-8"))
     cleaned_products = clean_products(raw_products)
+    total_items = len(cleaned_products)
+    images_added = sum(1 for product in cleaned_products if product.get("image"))
+
+    print(f"Images added: {images_added} / {total_items}")
+    if images_added == 0:
+        print("No images were added to the cleaned products. Aborting.")
+        sys.exit(1)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(cleaned_products, indent=2), encoding="utf-8")
