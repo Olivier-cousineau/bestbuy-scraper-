@@ -21,6 +21,76 @@ SHOW_MORE_CANDIDATES = [
 ]
 
 
+def handle_onetrust(page) -> None:
+    locator = page.locator("#onetrust-consent-sdk").first
+    try:
+        if locator.count() == 0 or not locator.is_visible():
+            print("[onetrust] not found")
+            return
+    except Exception:
+        print("[onetrust] not found")
+        return
+
+    accept_selectors = [
+        'button:has-text("Accept All")',
+        'button:has-text("Accept all")',
+        'button:has-text("Accepter tout")',
+        'button:has-text("Tout accepter")',
+        "#onetrust-accept-btn-handler",
+    ]
+    close_selectors = [
+        'button[aria-label*="Close"]',
+        'button:has-text("Fermer")',
+    ]
+
+    clicked = False
+    for selector in accept_selectors:
+        button = page.locator(selector).first
+        if button.count() == 0:
+            continue
+        try:
+            if button.is_visible() and button.is_enabled():
+                button.click(timeout=5000)
+                clicked = True
+                break
+        except Exception:
+            continue
+
+    if not clicked:
+        for selector in close_selectors:
+            button = page.locator(selector).first
+            if button.count() == 0:
+                continue
+            try:
+                if button.is_visible() and button.is_enabled():
+                    button.click(timeout=5000)
+                    clicked = True
+                    break
+            except Exception:
+                continue
+
+    try:
+        locator.wait_for(state="hidden", timeout=5000)
+    except Exception:
+        pass
+
+    try:
+        if locator.is_visible():
+            page.evaluate(
+                """() => {
+                    const sdk = document.querySelector('#onetrust-consent-sdk');
+                    if (sdk) sdk.style.display = 'none';
+                    document.querySelectorAll(
+                        '.onetrust-pc-dark-filter, #onetrust-pc-sdk, #onetrust-group-container'
+                    ).forEach((el) => el && (el.style.display = 'none'));
+                }"""
+            )
+    except Exception:
+        pass
+
+    print("[onetrust] handled")
+
+
 def count_anchors(page) -> int:
     return page.locator(PRODUCT_ANCHOR_SEL).count()
 
@@ -261,6 +331,7 @@ def scroll_clearance_page(
         page = context.new_page()
         print(f"[scroll_clearance_page] Opening {CLEARANCE_URL}")
         page.goto(CLEARANCE_URL, wait_until="domcontentloaded", timeout=60000)
+        handle_onetrust(page)
 
         # Petit délai pour laisser la page initiale se charger
         page.wait_for_timeout(3000)
@@ -310,6 +381,7 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
         page = context.new_page()
         print(f"[scrape_bestbuy_clearance] Opening {CLEARANCE_URL}")
         page.goto(CLEARANCE_URL, wait_until="domcontentloaded", timeout=60000)
+        handle_onetrust(page)
         page.wait_for_timeout(3000)
 
         last_height = page.evaluate("document.body.scrollHeight")
