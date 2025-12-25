@@ -1,1 +1,1 @@
-BESTBUY_SEED_URL = "<PASTE_URL_ICI>"
+BESTBUY_SEED_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"

@@ -21,6 +21,10 @@ SHOW_MORE_CANDIDATES = [
 ]
 
 
+class Error(Exception):
+    pass
+
+
 def onetrust_present(page) -> bool:
     try:
         return page.locator("#onetrust-consent-sdk").count() > 0
@@ -354,6 +358,11 @@ def wait_after_show_more(page) -> None:
         page.wait_for_load_state("domcontentloaded", timeout=30000)
 
 
+def _validate_seed_url(seed_url: str) -> None:
+    if not seed_url or not seed_url.startswith(("http://", "https://")):
+        raise Error(f"Invalid seed URL: {seed_url}")
+
+
 def scroll_clearance_page(
     max_scrolls: int = 5,
     pause_sec: float = 1.5,
@@ -377,6 +386,7 @@ def scroll_clearance_page(
         )
         page = context.new_page()
         print(f"[bestbuy] seedUrl={BESTBUY_SEED_URL}")
+        _validate_seed_url(BESTBUY_SEED_URL)
         print(f"[scroll_clearance_page] Opening {BESTBUY_SEED_URL}")
         response = page.goto(BESTBUY_SEED_URL, wait_until="domcontentloaded", timeout=60000)
         final_url = response.url if response else page.url
@@ -437,6 +447,7 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
         )
         page = context.new_page()
         print(f"[bestbuy] seedUrl={BESTBUY_SEED_URL}")
+        _validate_seed_url(BESTBUY_SEED_URL)
         print(f"[scrape_bestbuy_clearance] Opening {BESTBUY_SEED_URL}")
         response = page.goto(BESTBUY_SEED_URL, wait_until="domcontentloaded", timeout=60000)
         final_url = response.url if response else page.url
