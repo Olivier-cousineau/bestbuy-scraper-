@@ -9,8 +9,8 @@ from typing import Dict, List, Tuple
 
 from playwright.sync_api import sync_playwright
 
+from .config import BESTBUY_SEED_URL
 
-CLEARANCE_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
 PRODUCT_ID_PATTERN = re.compile(r"/(\d+)(?:[?#].*)?$")
 PRODUCT_ANCHOR_SEL = 'a[href^="/en-ca/product/"]'
 SHOW_MORE_CANDIDATES = [
@@ -233,7 +233,7 @@ def extract_display_price(container) -> str:
 def extract_products_from_page(page) -> List[Dict]:
     """
     Extract products directly from the live DOM after scrolling.
-    Returns a list with title, url, price_raw, salePrice, and image fields.
+    Returns a list with title, name, url, price_raw, price, salePrice, and image fields.
     """
     anchors = page.query_selector_all('a[href^="/en-ca/product/"]')
     anchors_found = len(anchors)
@@ -286,6 +286,7 @@ def extract_products_from_page(page) -> List[Dict]:
 
         image = None
         price_raw = None
+        price_value = None
         sale_price = None
         if container:
             img = container.query_selector("img")
@@ -299,7 +300,10 @@ def extract_products_from_page(page) -> List[Dict]:
             normalized_price = normalize_display_price(display_price)
             if normalized_price:
                 price_raw = normalized_price
-                sale_price = float(re.sub(r"[^0-9.]", "", normalized_price))
+                numeric = re.sub(r"[^0-9.]", "", normalized_price)
+                if numeric:
+                    price_value = float(numeric)
+                    sale_price = price_value
 
         product_id_match = PRODUCT_ID_PATTERN.search(url_abs)
         product_id = product_id_match.group(1) if product_id_match else None
@@ -311,8 +315,10 @@ def extract_products_from_page(page) -> List[Dict]:
         products.append(
             {
                 "title": title,
+                "name": title,
                 "url": url_abs,
                 "price_raw": price_raw,
+                "price": price_value,
                 "salePrice": sale_price,
                 "image": image,
             }
@@ -370,8 +376,12 @@ def scroll_clearance_page(
             viewport={"width": 1280, "height": 720},
         )
         page = context.new_page()
-        print(f"[scroll_clearance_page] Opening {CLEARANCE_URL}")
-        page.goto(CLEARANCE_URL, wait_until="domcontentloaded", timeout=60000)
+        print(f"[bestbuy] seedUrl={BESTBUY_SEED_URL}")
+        print(f"[scroll_clearance_page] Opening {BESTBUY_SEED_URL}")
+        response = page.goto(BESTBUY_SEED_URL, wait_until="domcontentloaded", timeout=60000)
+        final_url = response.url if response else page.url
+        if final_url != BESTBUY_SEED_URL:
+            print(f"[bestbuy] finalUrl={final_url}")
         handle_onetrust(page)
         log_onetrust_status(page, "post-handle")
 
@@ -426,8 +436,12 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
             viewport={"width": 1280, "height": 720},
         )
         page = context.new_page()
-        print(f"[scrape_bestbuy_clearance] Opening {CLEARANCE_URL}")
-        page.goto(CLEARANCE_URL, wait_until="domcontentloaded", timeout=60000)
+        print(f"[bestbuy] seedUrl={BESTBUY_SEED_URL}")
+        print(f"[scrape_bestbuy_clearance] Opening {BESTBUY_SEED_URL}")
+        response = page.goto(BESTBUY_SEED_URL, wait_until="domcontentloaded", timeout=60000)
+        final_url = response.url if response else page.url
+        if final_url != BESTBUY_SEED_URL:
+            print(f"[bestbuy] finalUrl={final_url}")
         handle_onetrust(page)
         log_onetrust_status(page, "post-handle")
         page.wait_for_timeout(3000)
