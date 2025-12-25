@@ -162,6 +162,7 @@ def click_show_more(
             button_handle.scroll_into_view_if_needed()
             button_handle.click(timeout=5000)
             total_clicks += 1
+            page.wait_for_timeout(random.randint(1000, 2000))
         except Exception as e:
             if onetrust_present(page):
                 print(f"[click_show_more] Clic intercepté ({e}). Masquage OneTrust.")
@@ -280,6 +281,18 @@ def _extract_background_image(container) -> str:
         match = re.search(r"background-image\s*:\s*url\((['\"]?)([^'\")]+)\1\)", style)
         if match:
             return match.group(2)
+    try:
+        computed = container.evaluate(
+            """(el) => {
+                const style = window.getComputedStyle(el);
+                return style ? style.backgroundImage : "";
+            }"""
+        )
+        match = re.search(r"url\\((['\"]?)([^'\")]+)\\1\\)", computed or "")
+        if match:
+            return match.group(2)
+    except Exception:
+        return ""
     return ""
 
 
@@ -348,6 +361,7 @@ def extract_products_from_page(page) -> List[Dict]:
                 image = (
                     img.get_attribute("src")
                     or img.get_attribute("data-src")
+                    or img.get_attribute("data-srcset")
                     or img.get_attribute("data-lazy")
                     or img.get_attribute("data-original")
                 )
@@ -438,6 +452,38 @@ def wait_after_show_more(page) -> None:
         page.wait_for_load_state("domcontentloaded", timeout=30000)
 
 
+def wait_for_lazy_load(page) -> int:
+    print("[lazy-load] Waiting for network idle and image elements.")
+    try:
+        page.wait_for_load_state("networkidle", timeout=30000)
+    except Exception as e:
+        print(f"[lazy-load] networkidle wait failed ({e}), using domcontentloaded.")
+        page.wait_for_load_state("domcontentloaded", timeout=30000)
+    page.wait_for_timeout(1000)
+    try:
+        page.wait_for_selector("img[src], img[srcset], img[data-src]", timeout=30000)
+    except Exception as e:
+        print(f"[lazy-load] image selector wait failed ({e}).")
+    images_present = page.locator("img[src], img[srcset], img[data-src]").count()
+    print(f"[lazy-load] imagesPresentAfterLoad={images_present}")
+    return images_present
+
+
+def slow_scroll_steps(page, steps_min: int = 25, steps_max: int = 40) -> None:
+    steps = random.randint(steps_min, steps_max)
+    print(f"[slow-scroll] steps={steps}")
+    for step in range(steps):
+        page.evaluate(
+            """() => {
+                const offset = Math.max(window.innerHeight * 0.6, 300);
+                window.scrollBy(0, offset);
+            }"""
+        )
+        wait_ms = random.randint(700, 1200)
+        print(f"[slow-scroll] step {step+1}/{steps} wait={wait_ms}ms")
+        page.wait_for_timeout(wait_ms)
+
+
 def _validate_seed_url(seed_url: str) -> None:
     if not seed_url or not seed_url.startswith(("http://", "https://")):
         raise Error(f"Invalid seed URL: {seed_url}")
@@ -479,16 +525,7 @@ def scroll_clearance_page(
         page.wait_for_timeout(3000)
 
         # 1) Scroll léger pour initialiser la page et déclencher les premiers chargements
-        last_height = page.evaluate("document.body.scrollHeight")
-        for i in range(max_scrolls):
-            print(f"[scroll_clearance_page] Initial scroll {i+1}/{max_scrolls}")
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            sleep_time = pause_sec + random.uniform(0.2, 0.8)
-            page.wait_for_timeout(int(sleep_time * 1000))
-            new_height = page.evaluate("document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
+        slow_scroll_steps(page)
 
         anchors_before_show_more = count_anchors(page)
         print(f"[scroll_clearance_page] anchorsBefore={anchors_before_show_more}")
@@ -537,16 +574,7 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
         log_onetrust_status(page, "post-handle")
         page.wait_for_timeout(3000)
 
-        last_height = page.evaluate("document.body.scrollHeight")
-        for i in range(5):
-            print(f"[scrape_bestbuy_clearance] Initial scroll {i+1}/5")
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            sleep_time = 1.5 + random.uniform(0.2, 0.8)
-            page.wait_for_timeout(int(sleep_time * 1000))
-            new_height = page.evaluate("document.body.scrollHeight")
-            if new_height == last_height:
-                break
-            last_height = new_height
+        slow_scroll_steps(page)
 
         anchors_before_show_more = count_anchors(page)
         print(f"[scrape_bestbuy_clearance] anchorsBefore={anchors_before_show_more}")
@@ -557,7 +585,16 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
 
         wait_after_show_more(page)
 
+        images_present_after_load = wait_for_lazy_load(page)
+
         products = extract_products_from_page(page)
+        images_extracted = sum(1 for product in products if product.get("image"))
+        print(
+            "[image-stats] "
+            f"totalProducts={len(products)} "
+            f"imagesPresentAfterLoad={images_present_after_load} "
+            f"imagesExtracted={images_extracted}"
+        )
         if not products:
             debug_dir = Path("outputs/debug")
             debug_dir.mkdir(parents=True, exist_ok=True)
