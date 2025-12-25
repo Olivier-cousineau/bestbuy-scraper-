@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import json
 import re
-import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -44,58 +43,76 @@ def extract_price(price_raw: str) -> Optional[float]:
         return None
 
 
-def clean_item(item: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def clean_item(item: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Normalize and validate a single clearance product entry."""
 
     title = (item.get("title") or "").strip()
     url = (item.get("url") or "").strip()
     price_raw = (item.get("price_raw") or "").strip()
-    image = item.get("image")
+    image = item.get("image") or None
 
-    if not title or not url:
-        return None
+    if not title:
+        return None, "missing_title"
+    if not url or not url.startswith(("http://", "https://")):
+        return None, "invalid_url"
     if is_review_counter(title):
-        return None
-    if not image:
-        return None
+        return None, "review_counter"
     price = extract_price(price_raw)
     if price is None:
-        return None
+        return None, "missing_price"
 
-    return {
-        "title": title,
-        "url": url,
-        "price": price,
-        "price_raw": price_raw,
-        "image": image,
-    }
+    return (
+        {
+            "title": title,
+            "url": url,
+            "price": price,
+            "price_raw": price_raw,
+            "image": image,
+        },
+        None,
+    )
 
 
-def dedupe_products(products: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def dedupe_products(products: Iterable[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int]:
     """Remove duplicate products based on BestBuy product ID."""
 
     seen: set[str] = set()
     deduped: List[Dict[str, Any]] = []
+    duplicates = 0
     for product in products:
         url = product["url"]
         product_id = extract_pid(url)
         if product_id:
             if product_id in seen:
+                duplicates += 1
                 continue
             seen.add(product_id)
         deduped.append(product)
-    return deduped
+    return deduped, duplicates
 
 
-def clean_products(products: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def clean_products(
+    products: Iterable[Dict[str, Any]],
+) -> tuple[List[Dict[str, Any]], Dict[str, int]]:
     """Clean a collection of raw product dictionaries."""
 
     cleaned: List[Dict[str, Any]] = []
+    rejected = {
+        "missing_title": 0,
+        "invalid_url": 0,
+        "review_counter": 0,
+        "missing_price": 0,
+    }
     for product in products:
-        cleaned_item = clean_item(product)
+        cleaned_item, reason = clean_item(product)
         if cleaned_item:
             cleaned.append(cleaned_item)
-    return dedupe_products(cleaned)
+            continue
+        if reason:
+            rejected[reason] = rejected.get(reason, 0) + 1
+    deduped, duplicates = dedupe_products(cleaned)
+    rejected["duplicates"] = duplicates
+    return deduped, rejected
 
 
 def parse_args() -> argparse.Namespace:
@@ -125,14 +142,14 @@ def main() -> None:
         raise FileNotFoundError(f"{args.input} not found")
 
     raw_products = json.loads(args.input.read_text(encoding="utf-8"))
-    cleaned_products = clean_products(raw_products)
+    cleaned_products, rejected_stats = clean_products(raw_products)
     total_items = len(cleaned_products)
     images_added = sum(1 for product in cleaned_products if product.get("image"))
 
     print(f"Products: {total_items}, Images added: {images_added}")
-    if images_added == 0:
-        print("No images were found in the cleaned products. Aborting.")
-        sys.exit(1)
+    print("Rejected stats:")
+    for key, value in rejected_stats.items():
+        print(f"  - {key}: {value}")
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(cleaned_products, indent=2), encoding="utf-8")
