@@ -10,6 +10,8 @@ from typing import Any, Dict, Iterable, List, Optional
 import requests
 from bs4 import BeautifulSoup
 
+from .config import BESTBUY_SEED_URL
+
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -20,8 +22,6 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8",
     "Connection": "keep-alive",
 }
-
-BESTBUY_CLEARANCE_URL = "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
 
 
 @dataclass
@@ -37,7 +37,7 @@ class ScrapingError(Exception):
     pass
 
 
-def fetch_page(url: str, timeout: int = 40, max_retries: int = 3) -> str:
+def fetch_page(url: str, timeout: int = 40, max_retries: int = 3) -> tuple[str, str]:
     """
     Fetch a BestBuy page with basic retry and backoff.
 
@@ -51,7 +51,7 @@ def fetch_page(url: str, timeout: int = 40, max_retries: int = 3) -> str:
             print(f"[fetch_page] GET {url} (attempt {attempt}/{max_retries}, timeout={timeout}s)")
             response = requests.get(url, headers=DEFAULT_HEADERS, timeout=timeout)
             response.raise_for_status()
-            return response.text
+            return response.text, response.url
         except requests.exceptions.ReadTimeout as e:
             print(f"[fetch_page][WARN] ReadTimeout on {url} (attempt {attempt}/{max_retries}): {e}")
             last_error = e
@@ -263,7 +263,7 @@ def _fallback_parse_products_from_html(html: str):
     return products
 
 
-def scrape_products(url: str = BESTBUY_CLEARANCE_URL) -> List[Product]:
+def scrape_products(url: str = BESTBUY_SEED_URL) -> List[Product]:
     """
     Scrape BestBuy clearance products depuis une URL de collection.
 
@@ -271,7 +271,10 @@ def scrape_products(url: str = BESTBUY_CLEARANCE_URL) -> List[Product]:
     2. Tente d'extraire le payload JSON via _extract_json_payload()
     3. Si ça échoue, utilise un fallback HTML simple pour extraire les produits.
     """
-    html = fetch_page(url)
+    print(f"[bestbuy] seedUrl={url}")
+    html, final_url = fetch_page(url)
+    if final_url != url:
+        print(f"[bestbuy] finalUrl={final_url}")
 
     # 1) Essayer le chemin "officiel" JSON
     try:
@@ -303,7 +306,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--url",
-        default=BESTBUY_CLEARANCE_URL,
+        default=BESTBUY_SEED_URL,
         help="BestBuy clearance collection URL to scrape.",
     )
     return parser.parse_args()
