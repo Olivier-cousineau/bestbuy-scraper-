@@ -234,6 +234,55 @@ def extract_display_price(container) -> str:
     return match.group(0) if match else ""
 
 
+def _normalize_image_url(url: str) -> str:
+    if not url:
+        return ""
+    url = url.strip()
+    if url.startswith("//"):
+        return f"https:{url}"
+    if url.startswith("/"):
+        return f"https://www.bestbuy.ca{url}"
+    return url
+
+
+def _pick_srcset_url(srcset: str) -> str:
+    if not srcset:
+        return ""
+    candidates = []
+    for part in srcset.split(","):
+        bits = part.strip().split()
+        if not bits:
+            continue
+        url = bits[0]
+        score = 0
+        if len(bits) > 1:
+            descriptor = bits[1].lower()
+            match = re.search(r"(\d+)", descriptor)
+            if match:
+                score = int(match.group(1))
+        candidates.append((score, url))
+    if not candidates:
+        return ""
+    best = max(candidates, key=lambda item: item[0])
+    return best[1] if best[1] else candidates[0][1]
+
+
+def _extract_background_image(container) -> str:
+    if not container:
+        return ""
+    style = container.get_attribute("style") or ""
+    match = re.search(r"background-image\s*:\s*url\((['\"]?)([^'\")]+)\1\)", style)
+    if match:
+        return match.group(2)
+    styled = container.query_selector("[style*='background-image']")
+    if styled:
+        style = styled.get_attribute("style") or ""
+        match = re.search(r"background-image\s*:\s*url\((['\"]?)([^'\")]+)\1\)", style)
+        if match:
+            return match.group(2)
+    return ""
+
+
 def extract_products_from_page(page) -> List[Dict]:
     """
     Extract products directly from the live DOM after scrolling.
@@ -251,6 +300,7 @@ def extract_products_from_page(page) -> List[Dict]:
 
     products = []
     seen_product_ids = set()
+    missing_image_samples = []
 
     for anchor in anchors:
         href = anchor.get_attribute("href")
@@ -298,8 +348,16 @@ def extract_products_from_page(page) -> List[Dict]:
                 image = (
                     img.get_attribute("src")
                     or img.get_attribute("data-src")
-                    or img.evaluate("img => img.currentSrc")
+                    or img.get_attribute("data-lazy")
+                    or img.get_attribute("data-original")
                 )
+                if not image:
+                    image = _pick_srcset_url(img.get_attribute("srcset") or "")
+                if not image:
+                    image = img.evaluate("img => img.currentSrc")
+            if not image:
+                image = _extract_background_image(container)
+            image = _normalize_image_url(image) if image else None
             display_price = extract_display_price(container)
             normalized_price = normalize_display_price(display_price)
             if normalized_price:
@@ -328,6 +386,21 @@ def extract_products_from_page(page) -> List[Dict]:
             }
         )
 
+        if not image and len(missing_image_samples) < 10:
+            snippet_source = container or anchor
+            snippet = ""
+            if snippet_source:
+                try:
+                    snippet = snippet_source.evaluate("node => node.outerHTML") or ""
+                except Exception:
+                    snippet = ""
+            snippet = re.sub(r"\s+", " ", snippet).strip()
+            if len(snippet) > 300:
+                snippet = f"{snippet[:297]}..."
+            missing_image_samples.append(
+                {"title": title, "url": url_abs, "snippet": snippet or "n/a"}
+            )
+
     total_products = len(products)
     images_found = sum(1 for product in products if product.get("image"))
     prices_found = sum(1 for product in products if product.get("price_raw"))
@@ -345,6 +418,13 @@ def extract_products_from_page(page) -> List[Dict]:
         print(
             f"Example {idx}: {product.get('title')} -> {product.get('price_raw')} -> {product.get('url')}"
         )
+    if missing_image_samples:
+        print("[extract_products] Sample missing-image cards (up to 10):")
+        for idx, sample in enumerate(missing_image_samples, start=1):
+            print(
+                f"[extract_products] MissingImage {idx}: "
+                f"title={sample['title']} url={sample['url']} snippet={sample['snippet']}"
+            )
     return products
 
 
