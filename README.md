@@ -32,7 +32,7 @@ PYTHONPATH=src python -m bestbuy_scraper.scraper --output /tmp/clearance.json --
 
 The repository includes a GitHub Actions workflow (`.github/workflows/scrape.yml`) that:
 
-- Runs on demand via the `workflow_dispatch` trigger and every day at 06:00 UTC.
+- Runs on demand via the `workflow_dispatch` trigger and every Wednesday/Saturday at 04:00 UTC.
 - Installs dependencies.
 - Executes the scraper to generate `data/clearance_products.json`.
 - Uploads the JSON output as a build artifact named `bestbuy-clearance`.
