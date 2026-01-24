@@ -14,6 +14,8 @@ jobs:
       # ⚠️ Pas de token ici, on utilise GITHUB_TOKEN par défaut.
       - name: Checkout bestbuy-scraper repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -48,29 +50,30 @@ jobs:
             --output outputs/bestbuy/clearance.json
 
       # 4) Checkout du repo econoplus avec le secret ACCES
-      - name: Checkout econoplus repo
+      - name: Checkout econoplus
         uses: actions/checkout@v4
         with:
           repository: Olivier-cousineau/econoplus
           ref: main
-          path: _econoplus
-          token: ${{ secrets.ECONOPLUS_PAT }}
+          token: ${{ secrets.ECONOPLUS }}
+          path: econoplus
+          fetch-depth: 0
 
       # 5) Copier le fichier brut dans l'autre repo
       - name: Copier clearance.json brut vers econoplus
         run: |
-          mkdir -p _econoplus/outputs/bestbuy
-          cp data/clearance_products_full.json _econoplus/outputs/bestbuy/clearance.json
+          mkdir -p econoplus/outputs/bestbuy
+          cp data/clearance_products_full.json econoplus/outputs/bestbuy/clearance.json
 
       - name: Copy BestBuy online.json to econoplus
         run: |
           set -e
-          mkdir -p _econoplus/public/bestbuy
-          cp outputs/bestbuy/clearance.json _econoplus/public/bestbuy/online.json
+          mkdir -p econoplus/public/bestbuy
+          cp outputs/bestbuy/clearance.json econoplus/public/bestbuy/online.json
 
       # 6) Commit & push vers econoplus
       - name: Commit & push to econoplus
-        working-directory: _econoplus
+        working-directory: econoplus
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
