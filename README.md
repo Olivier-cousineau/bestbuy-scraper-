@@ -28,6 +28,13 @@ You can also override the output path or target URL:
 PYTHONPATH=src python -m bestbuy_scraper.scraper --output /tmp/clearance.json --url "https://www.bestbuy.ca/en-ca/collection/clearance-products/113065"
 ```
 
+If you need to send a token header, set the environment variables before running:
+
+```bash
+export BESTBUY_TOKEN="ECONOPLUS"
+export BESTBUY_TOKEN_HEADER="X-Token"
+```
+
 ## Workflow
 
 The repository includes a GitHub Actions workflow (`.github/workflows/scrape.yml`) that:

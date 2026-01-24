@@ -9,7 +9,7 @@ from typing import Dict, List, Tuple
 
 from playwright.sync_api import sync_playwright
 
-from .config import BESTBUY_SEED_URL
+from .config import BESTBUY_SEED_URL, build_bestbuy_headers
 
 PRODUCT_ID_PATTERN = re.compile(r"/(\d+)(?:[?#].*)?$")
 PRODUCT_ANCHOR_SEL = 'a[href^="/en-ca/product/"]'
@@ -502,13 +502,11 @@ def scroll_clearance_page(
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        headers = build_bestbuy_headers()
         context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            user_agent=headers.get("User-Agent"),
             viewport={"width": 1280, "height": 720},
+            extra_http_headers=headers,
         )
         page = context.new_page()
         print(f"[bestbuy] seedUrl={BESTBUY_SEED_URL}")
@@ -554,13 +552,11 @@ def scrape_bestbuy_clearance() -> Tuple[str, List[Dict]]:
     """
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        headers = build_bestbuy_headers()
         context = browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            ),
+            user_agent=headers.get("User-Agent"),
             viewport={"width": 1280, "height": 720},
+            extra_http_headers=headers,
         )
         page = context.new_page()
         print(f"[bestbuy] seedUrl={BESTBUY_SEED_URL}")
