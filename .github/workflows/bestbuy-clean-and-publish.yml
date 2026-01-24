@@ -59,6 +59,13 @@ jobs:
           path: econoplus
           fetch-depth: 0
 
+      - name: Sync econoplus main
+        working-directory: econoplus
+        run: |
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
       # 5) Copier le fichier brut dans l'autre repo
       - name: Copier clearance.json brut vers econoplus
         run: |
@@ -77,8 +84,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git status --porcelain
           if git status --porcelain | grep -q .; then
-            git add -A
+            git add outputs/bestbuy public/bestbuy
             git commit -m "BestBuy: update online.json"
             git push origin main
           else
