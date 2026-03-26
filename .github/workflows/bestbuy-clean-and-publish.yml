@@ -103,6 +103,19 @@ jobs:
           mkdir -p econoplus/public/bestbuy
           cp outputs/bestbuy/clearance.json econoplus/public/bestbuy/online.json
 
+      - name: Upsert to Supabase
+        if: steps.schedule_check.outputs.should_run == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_SERVICE_KEY" ]; then
+            npm install --omit=dev
+            node scripts/upsert_to_supabase.mjs bestbuy outputs/bestbuy/clearance.json
+          else
+            echo "Supabase credentials not configured, skipping ingestion"
+          fi
+
       - name: Commit & push to econoplus
         if: steps.schedule_check.outputs.should_run == 'true'
         working-directory: econoplus
